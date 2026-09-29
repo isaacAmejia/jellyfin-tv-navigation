@@ -1,88 +1,209 @@
 # Jellyfin TV Navigation
 
-A custom TV-style D-pad navigation layer for Jellyfin Web, developed for a Raspberry Pi / Chromium living-room client.
+<p align="center">
+  <strong>Remote-first D-pad navigation for Jellyfin Web</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Jellyfin-12.1-AA5CC3?logo=jellyfin&logoColor=white" alt="Jellyfin 12.1">
+  <img src="https://img.shields.io/badge/Stable%20UI-Legacy%20%2F%20TV-00A4DC" alt="Legacy / TV UI">
+  <img src="https://img.shields.io/badge/Status-Active%20Development-2ea44f" alt="Active development">
+</p>
+
+Jellyfin TV Navigation adds a TV-style focus system and D-pad navigation layer to **Jellyfin Web**. It is designed for living-room clients such as a Raspberry Pi or other Chromium-based TV endpoint where Jellyfin Web is controlled with a remote instead of a mouse.
+
+> [!NOTE]
+> This repository is a JavaScript frontend extension, not a standalone Jellyfin DLL plugin. The stable build is loaded through **JavaScript Injector**.
+
+## Features
+
+- Remote/D-pad navigation across Home, Movies, TV, Search, Details, dialogs, and the player OSD
+- Automatic focus when pages and supported popups open
+- Home startup focus on **Media Bar Play** when Media Bar is installed
+- TV-style grid navigation for native Movies/TV libraries
+- SeerrFin discovery, provider/network grids, request flows, Back, tabs, and Load More
+- Header, tabs, drawer, and on-screen search keyboard navigation
+- Long-press **Enter / OK** to refresh
+- Long-press **Back / Escape** to return Home
+- Single visible focus ring with a subtle animation only for large jumps
+- Automatic context tracking to prevent stale or "ghost" selections
+
+## Requirements
+
+### Required
+
+| Component | Requirement |
+| --- | --- |
+| **Jellyfin** | Jellyfin 12.1-era Web UI; stable support targets **Legacy / TV** layout |
+| **Web-based client** | A client that actually renders Jellyfin Web, such as Chromium or a browser-based kiosk |
+| **JavaScript Injector** | Required to load the navigation script into Jellyfin Web |
+
+Install **JavaScript Injector** from:
+
+- Repository: [n00bcodr/Jellyfin-JavaScript-Injector](https://github.com/n00bcodr/Jellyfin-JavaScript-Injector)
+- Jellyfin 12 repository URL:
+
+```text
+https://raw.githubusercontent.com/n00bcodr/jellyfin-plugins/main/12/manifest.json
+```
 
 > [!IMPORTANT]
-> **AI disclosure:** This entire project was built using AI. All code and documentation in this repository were generated and iteratively developed with OpenAI ChatGPT under human direction, testing, and validation. See [AI Disclosure](docs/AI_DISCLOSURE.md) for details.
+> The stable build currently targets Jellyfin's **Legacy / TV interface**. Modern UI support is being developed separately on `develop/modern-ui`.
 
-## What it does
+### Optional integrations
 
-Jellyfin TV Navigation adds remote-friendly spatial navigation and visible focus handling to Jellyfin Web without modifying Jellyfin's core source code.
+These are **not required** for the core navigation layer.
 
-The final build includes:
+| Integration | What this project supports |
+| --- | --- |
+| [SeerrFin](https://github.com/varunaditya-plus/SeerrFin) | Discovery tabs, cards, provider/network grids, request dialogs |
+| [Media Bar](https://github.com/IAmParadox27/jellyfin-plugin-media-bar) | Home Media Bar controls and slide navigation |
+| [Jellyfin Enhanced](https://github.com/n00bcodr/Jellyfin-Enhanced) | Supported Enhanced popup/request UI |
+| [GlassFin](https://github.com/KBH-Reeper/GlassFin) | Tested theme; not required |
+| [Home Screen Sections](https://github.com/IAmParadox27/jellyfin-plugin-home-sections) | Tested alongside the navigation layer; not required |
 
-- D-pad navigation across Home rows and cards
-- TV-style navigation for Jellyfin detail pages
-- Automatic focus when pages, dialogs, drawers, and supported popups open
-- Native Jellyfin library navigation for Movies and TV
-- Header and tab navigation
-- Search navigation with an on-screen keyboard
-- Player/OSD navigation
-- SeerrFin discovery and request-flow navigation
-- Jellyfin Enhanced popup support used by this installation
-- Media Bar navigation using the plugin's native `window.slideshowPure` API
-- Long-press Enter/OK to refresh
-- Long-press Back/Escape to return Home
-- A single-ring focus system with a subtle arrival effect only for large focus jumps
-- Automatic context tracking to prevent stale or "ghost" selections behind a newly opened page or popup
+**Jellyfin Helper, File Transformation, and other UI plugins are not required by Jellyfin TV Navigation itself.**
 
-## Final version
+## Quick Start
 
-The production script is:
+1. In Jellyfin, open **Dashboard → Plugins → Repositories**.
+2. Add the JavaScript Injector repository shown above.
+3. Open **Catalog**, install **JavaScript Injector**, then restart Jellyfin.
+4. Open **Dashboard → Plugins → JavaScript Injector** (or **JS Injector** in the sidebar).
+5. Click **Add Script**.
+6. Name it something like **Jellyfin TV Navigation**.
+7. Copy the complete contents of [`src/jellyfin-tv-navigation.js`](src/jellyfin-tv-navigation.js) into the JavaScript Code field.
+8. Enable the script and save.
+9. Refresh/restart the Web client.
+10. For the stable build, use Jellyfin's **Legacy** display mode.
+
+Full instructions and verification steps are in [Installation](docs/INSTALLATION.md).
+
+## Current Stable Build
+
+Production file:
 
 ```text
 src/jellyfin-tv-navigation.js
 ```
 
-Internal build identifier:
+Build:
 
 ```text
-2026.09.29-r12.12-auto-context-focus
+2026.09.30-r12.12.1-home-seerr-maintenance
 ```
 
-This is the current stable build for the Legacy/TV interface described in [Compatibility](docs/COMPATIBILITY.md). Development continues, with Jellyfin 12 Modern UI support tracked separately in [Modern UI Roadmap](docs/MODERN_UI_ROADMAP.md).
+The `main` branch is the known-good **Legacy / TV** release. Modern UI work stays on `develop/modern-ui` until it is ready to merge.
 
-## Repository layout
+See:
+
+- [Installation](docs/INSTALLATION.md)
+- [Compatibility](docs/COMPATIBILITY.md)
+- [Modern UI Roadmap](docs/MODERN_UI_ROADMAP.md)
+- [Changelog](CHANGELOG.md)
+
+## How navigation is organized
+
+The script automatically detects the active Jellyfin surface and hands control to the appropriate navigation context.
 
 ```text
-.
-├── src/
-│   └── jellyfin-tv-navigation.js
-├── patches/
-│   └── media-bar-jellyfin12-autoplay-fix.patch
-├── docs/
-│   ├── AI_DISCLOSURE.md
-│   ├── COMPATIBILITY.md
-│   ├── INSTALLATION.md
-│   └── MODERN_UI_ROADMAP.md
-├── CHANGELOG.md
-└── README.md
+Jellyfin TV Navigation
+├── Home + Media Bar
+├── Header / tabs / drawer
+├── Movies + TV libraries
+├── Item details
+├── Search + TV keyboard
+├── Player / OSD
+├── Native dialogs
+├── SeerrFin
+└── Optional supported plugin UI
 ```
 
-The older r12.x development builds are intentionally not kept in the working tree. They remain available through the repository's Git history.
+You do not need to configure individual selectors or page mappings after installation.
 
-## Installation
+## Client support
 
-This script is intended to be loaded into Jellyfin Web through a JavaScript injection mechanism. See [Installation](docs/INSTALLATION.md) for the recommended deployment and verification process.
+The script runs inside **Jellyfin Web**. It is intended for browser/webview clients where injected JavaScript executes.
 
-## Media Bar note
+Native clients that do not render Jellyfin Web are outside the scope of this project.
 
-The navigation script integrates with **Media Bar** through its native `window.slideshowPure.nextSlide()` and `prevSlide()` functions.
+The original test environment is a Raspberry Pi 5 running Chromium, but the code is not Raspberry-Pi-specific and does not depend on HDMI-CEC.
 
-A separate patch is included under `patches/` for the Media Bar 3.0.0.0 / Jellyfin 12 autoplay-timer issue encountered during development. That patch is independent of the TV navigation script and should only be used when the affected Media Bar build actually needs it.
+## Media Bar
 
-## Scope
+This project integrates with **Media Bar**, not Media Bar Enhanced.
 
-This is a personal/community customization, not an official Jellyfin client, Jellyfin plugin, or Jellyfin project. It was built and tested against one specific Jellyfin Web setup and may require changes for other themes, plugins, Jellyfin versions, or DOM layouts.
+Manual slide navigation uses Media Bar's own `window.slideshowPure.nextSlide()` and `prevSlide()` API.
+
+A separate compatibility patch is included at:
+
+```text
+patches/media-bar-jellyfin12-autoplay-fix.patch
+```
+
+That patch is **not required for TV navigation**. It only addresses the Media Bar 3.0.0.0 / Jellyfin 12 autoplay issue encountered during development. If Media Bar has incorporated the upstream fix, use the official plugin release instead.
+
+## Updating
+
+When updating the script:
+
+1. Replace the existing JavaScript Injector entry with the complete new contents of `src/jellyfin-tv-navigation.js`.
+2. Keep only one enabled copy of Jellyfin TV Navigation.
+3. Save the injector configuration.
+4. Fully refresh or restart the Web client.
+5. Verify the loaded version with:
+
+```javascript
+window.__JELLYFIN_TV_REMOTE__?.version
+```
+
+## Troubleshooting
+
+If navigation does not appear:
+
+- Confirm **JavaScript Injector** is installed, enabled, and Jellyfin was restarted after installation.
+- Confirm the Jellyfin TV Navigation entry in JS Injector is enabled.
+- Confirm the stable client is using the **Legacy / TV** UI.
+- Make sure an old copy of the script is not also enabled.
+- Open the browser console and run:
+
+```javascript
+window.__JELLYFIN_TV_REMOTE__?.state?.()
+```
+
+See [Installation → Troubleshooting](docs/INSTALLATION.md#troubleshooting) for more.
+
+## Support and bug reports
+
+If you find a navigation problem, open a [GitHub issue](https://github.com/isaacAmejia/jellyfin-tv-navigation/issues) and include:
+
+- the Jellyfin version
+- Legacy/TV or Modern UI
+- the page where navigation failed
+- which optional UI plugins/themes are installed
+- what the D-pad did versus what you expected
+- a screenshot or browser-console output when useful
+
+For regressions, also include the value returned by:
+
+```javascript
+window.__JELLYFIN_TV_REMOTE__?.version
+```
 
 ## Project status
 
 **Active development.**
 
-`main` contains the current stable Legacy/TV build. New compatibility work is developed separately and should not replace the stable script until it has been tested against the target Jellyfin layout.
+- `main`: stable Legacy / TV build
+- `develop/modern-ui`: Modern UI development
+- Older development revisions remain available through Git history
 
-Current priority: **Jellyfin 12 Modern UI support** while preserving the existing Legacy/TV behavior.
+This is a community customization and is not affiliated with or endorsed by the Jellyfin project or the developers of the third-party integrations listed above.
+
+## AI disclosure
+
+This project was developed with OpenAI ChatGPT generating and revising the code and documentation under human direction and hands-on testing. See [AI Disclosure](docs/AI_DISCLOSURE.md) for the development history and limitations.
 
 ## License
 
-No open-source license has been assigned to this repository. Unless the repository owner adds one, normal copyright rules apply.
+No open-source license has currently been assigned to this repository. Unless a license is added, normal copyright rules apply.
