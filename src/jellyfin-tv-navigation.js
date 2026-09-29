@@ -2324,7 +2324,7 @@
       ];
 
     /*
-     * Media Bar Enhanced owns its slideshow lifecycle. Our remote
+     * Media Bar owns its slideshow lifecycle. Our remote
      * navigation only paints a visual focus ring; it must not leave
      * browser focus inside the bar because plugin/browser focus
      * handlers may treat that as an active interaction and suspend
@@ -3036,6 +3036,15 @@
   }
 
   function enterSeerrDiscovery() {
+    const grid =
+      seerrGridRoot();
+
+    if (grid) {
+      return enterSeerrGrid(
+        grid
+      );
+    }
+
     const root =
       seerrPageRoot();
 
