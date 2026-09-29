@@ -1,5 +1,18 @@
 # Changelog
 
+## Maintenance — r12.12.1
+
+Internal version: `2026.09.30-r12.12.1-home-seerr-maintenance`
+
+Stable maintenance update on top of the accepted r12.12 architecture.
+
+- Home now prefers Media Bar **Play** as its startup/return selection and retries while Media Bar mounts.
+- Home keeps a temporary visible fallback selection instead of loading with no focus.
+- A real D-pad input cancels the Home startup retry so late plugin rendering cannot steal focus.
+- SeerrFin full-grid/provider pages now automatically claim the first poster and include the grid Back button, top tabs, all loaded cards, and Load More in D-pad navigation.
+- Details explicitly prefer Jellyfin's visible `.mainDetailButtons .btnPlay` Play/Resume control on entry.
+- The same fixes were carried to the Modern development branch.
+
 ## Final — r12.12
 
 Internal version: `2026.09.29-r12.12-auto-context-focus`
