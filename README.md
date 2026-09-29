@@ -90,7 +90,7 @@ src/jellyfin-tv-navigation.js
 Build:
 
 ```text
-2026.09.30-r12.12.1-home-seerr-maintenance
+2026.09.30-r12.12.2-seerr-grid-navigation
 ```
 
 The `main` branch is the known-good **Legacy / TV** release. Modern UI work stays on `develop/modern-ui` until it is ready to merge.
