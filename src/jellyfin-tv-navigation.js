@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '2026.09.29-r12.12-auto-context-focus';
+  const VERSION = '2026.09.29-r13.0-alpha1-modern-adapter';
   const LONG_PRESS_REFRESH_MS = 900;
   const LONG_PRESS_HOME_MS = 900;
 
@@ -1411,6 +1411,134 @@
     );
   }
 
+  function isModernApp() {
+    /*
+     * Jellyfin 12 Modern AppLayout renders the active application inside
+     * a semantic <main> and uses a fixed MUI AppBar. Legacy/TV does not
+     * use this structure. Avoid generated MUI class hashes; only use
+     * MUI's stable global component classes plus semantic structure.
+     */
+    return Boolean(
+      document.querySelector(
+        'main'
+      ) &&
+      document.querySelector(
+        'header.MuiAppBar-root .MuiToolbar-root'
+      )
+    );
+  }
+
+  function modernAppBar() {
+    if (!isModernApp()) {
+      return null;
+    }
+
+    return [
+      ...document.querySelectorAll(
+        'header.MuiAppBar-root'
+      )
+    ].find(
+      visible
+    ) || null;
+  }
+
+  function modernTopToolbar() {
+    const appBar =
+      modernAppBar();
+
+    if (!appBar) {
+      return null;
+    }
+
+    return [
+      ...appBar.querySelectorAll(
+        '.MuiToolbar-root'
+      )
+    ].find(
+      toolbar =>
+        visible(
+          toolbar
+        ) &&
+        toolbar.querySelector(
+          'button:not([disabled]),a[href]'
+        )
+    ) || null;
+  }
+
+  function modernLibraryToolbar() {
+    const appBar =
+      modernAppBar();
+
+    if (!appBar) {
+      return null;
+    }
+
+    const top =
+      modernTopToolbar();
+
+    return [
+      ...appBar.querySelectorAll(
+        '.MuiToolbar-root'
+      )
+    ].find(
+      toolbar =>
+        toolbar !== top &&
+        visible(
+          toolbar
+        ) &&
+        toolbar.querySelector(
+          'button[aria-controls="library-view-menu"],' +
+          'button:not([disabled])'
+        )
+    ) || null;
+  }
+
+  function modernHeaderTargets() {
+    const toolbar =
+      modernTopToolbar();
+
+    if (!toolbar) {
+      return [];
+    }
+
+    return uniqueVisible([
+      ...toolbar.querySelectorAll(
+        'button:not([disabled]),' +
+        'a[href],' +
+        '[role="button"]:not([aria-disabled="true"])'
+      )
+    ]).filter(
+      el =>
+        !el.closest(
+          '[aria-hidden="true"]'
+        )
+    );
+  }
+
+  function modernLibraryToolbarTargets() {
+    const toolbar =
+      modernLibraryToolbar();
+
+    if (!toolbar) {
+      return [];
+    }
+
+    return uniqueVisible([
+      ...toolbar.querySelectorAll(
+        'button:not([disabled]),' +
+        'a[href],' +
+        '[role="button"]:not([aria-disabled="true"])'
+      )
+    ]).filter(
+      el =>
+        !el.closest(
+          '[aria-hidden="true"]'
+        )
+    ).sort(
+      visualSort
+    );
+  }
+
   function rebuildHeaderTargets() {
     const candidates = [
       ...document.querySelectorAll(
@@ -1424,7 +1552,8 @@
         '.headerUserButtonRound,' +
         'button[aria-label="Back" i],' +
         'button[title="Back" i]'
-      )
+      ),
+      ...modernHeaderTargets()
     ].filter(
       el => {
         if (
@@ -1487,7 +1616,7 @@
   function findActiveHeaderIndex() {
     rebuildHeaderTargets();
 
-    const activeIndex =
+    let activeIndex =
       headerTargets.findIndex(
         el =>
           el.classList
@@ -1499,6 +1628,44 @@
           ) ===
             'true'
       );
+
+    if (
+      activeIndex <
+        0 &&
+      isModernApp()
+    ) {
+      const route =
+        location.hash
+          .replace(
+            /^#/,
+            ''
+          )
+          .split(
+            '?'
+          )[0] ||
+        location.pathname;
+
+      activeIndex =
+        headerTargets.findIndex(
+          el => {
+            const href =
+              el.getAttribute(
+                'href'
+              ) ||
+              '';
+
+            return (
+              route &&
+              (
+                href.includes(
+                  `#${route}`
+                ) ||
+                href === route
+              )
+            );
+          }
+        );
+    }
 
     return (
       activeIndex >=
@@ -2323,7 +2490,7 @@
       ];
 
     /*
-     * Media Bar Enhanced owns its slideshow lifecycle. Our remote
+     * Media Bar owns its slideshow lifecycle. Our remote
      * navigation only paints a visual focus ring; it must not leave
      * browser focus inside the bar because plugin/browser focus
      * handlers may treat that as an active interaction and suspend
@@ -6372,7 +6539,8 @@
         '.listPaging button,' +
         '.paging button,' +
         'select:not([disabled])'
-      )
+      ),
+      ...modernLibraryToolbarTargets()
     ]).filter(
       el =>
         !el.disabled &&
@@ -7211,7 +7379,9 @@
         '.dialogContainer .formDialog,' +
         '.actionSheet,' +
         '.selectionCommandsPanel,' +
-        '.promptDialog'
+        '.promptDialog,' +
+        '.MuiPopover-root [role="menu"],' +
+        '.MuiModal-root [role="menu"]'
       )
     ].find(
       root =>
@@ -7243,6 +7413,7 @@
         'a[href],' +
         '[role="button"]:not([aria-disabled="true"]),' +
         '[role="option"]:not([aria-disabled="true"]),' +
+        '[role="menuitem"]:not([aria-disabled="true"]),' +
         'input:not([type="hidden"]):not([disabled]),' +
         'select:not([disabled]),' +
         'textarea:not([disabled]),' +
@@ -7617,6 +7788,9 @@
       '.actionSheet,' +
       '.selectionCommandsPanel,' +
       '.promptDialog,' +
+      '.MuiPopover-root,' +
+      '.MuiModal-root,' +
+      '[role="menu"],' +
       '.bst-popout-wrapper,' +
       '.je-more-info-modal,' +
       '.bst-request-form';
