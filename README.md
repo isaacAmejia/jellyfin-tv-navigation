@@ -60,7 +60,7 @@ These are **not required** for the core navigation layer.
 | [Media Bar](https://github.com/IAmParadox27/jellyfin-plugin-media-bar) | Home Media Bar controls and slide navigation |
 | [Jellyfin Enhanced](https://github.com/n00bcodr/Jellyfin-Enhanced) | Supported Enhanced popup/request UI |
 | [GlassFin](https://github.com/KBH-Reeper/GlassFin) | Tested theme; not required |
-| Home Screen Sections | Tested alongside the navigation layer; not required |
+| [Home Screen Sections](https://github.com/IAmParadox27/jellyfin-plugin-home-sections) | Tested alongside the navigation layer; not required |
 
 **Jellyfin Helper, File Transformation, and other UI plugins are not required by Jellyfin TV Navigation itself.**
 
@@ -172,6 +172,23 @@ window.__JELLYFIN_TV_REMOTE__?.state?.()
 ```
 
 See [Installation → Troubleshooting](docs/INSTALLATION.md#troubleshooting) for more.
+
+## Support and bug reports
+
+If you find a navigation problem, open a [GitHub issue](https://github.com/isaacAmejia/jellyfin-tv-navigation/issues) and include:
+
+- the Jellyfin version
+- Legacy/TV or Modern UI
+- the page where navigation failed
+- which optional UI plugins/themes are installed
+- what the D-pad did versus what you expected
+- a screenshot or browser-console output when useful
+
+For regressions, also include the value returned by:
+
+```javascript
+window.__JELLYFIN_TV_REMOTE__?.version
+```
 
 ## Project status
 
