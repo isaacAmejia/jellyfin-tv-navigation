@@ -1,5 +1,17 @@
 # Changelog
 
+## Maintenance — r12.12.2
+
+Internal version: `2026.09.30-r12.12.2-seerr-grid-navigation`
+
+Legacy/TV SeerrFin grid correction.
+
+- SeerrFin provider/network browse grids now start on the **first real card** once asynchronous card loading completes instead of preserving the temporary Back selection from the empty grid shell.
+- D-pad movement in these grids now scrolls the **actual Jellyfin page** to keep the selected card and Load More button visible.
+- Moving back to grid/header chrome scrolls the page back to the top.
+- Universal Home (hold Back/Escape) now closes an active same-page SeerrFin grid through SeerrFin's own Back control before continuing the normal Home action.
+- This maintenance pass was applied to the stable Legacy/TV branch only; Modern UI development remains separate.
+
 ## Maintenance — r12.12.1
 
 Internal version: `2026.09.30-r12.12.1-home-seerr-maintenance`
