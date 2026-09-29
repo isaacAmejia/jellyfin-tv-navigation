@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '2026.09.30-r12.12.1-home-seerr-maintenance';
+  const VERSION = '2026.09.30-r12.12.2-seerr-grid-navigation';
   const LONG_PRESS_REFRESH_MS = 900;
   const LONG_PRESS_HOME_MS = 900;
 
@@ -324,6 +324,43 @@
 
   function goUniversalHome() {
     hideFocus();
+
+    /*
+     * SeerrFin provider/network grids are same-page views: opening one
+     * does not create a new Jellyfin route. Close the active grid through
+     * SeerrFin's own Back control before running the normal Home action,
+     * otherwise Jellyfin can already consider itself "Home" and leave
+     * the grid mounted.
+     */
+    const seerrGrid =
+      seerrGridRoot();
+
+    const seerrGridBack =
+      seerrGrid?.querySelector(
+        '[data-grid-nav="back"]'
+      );
+
+    if (
+      seerrGridBack &&
+      visible(
+        seerrGridBack
+      )
+    ) {
+      click(
+        seerrGridBack
+      );
+
+      resetTransientNavigationState(
+        'route-reset'
+      );
+
+      setTimeout(
+        goUniversalHome,
+        80
+      );
+
+      return;
+    }
 
     const home =
       [
@@ -1186,6 +1223,107 @@
           scrollerRect.bottom -
           padding
         );
+    }
+  }
+
+  function scrollSeerrGridTarget(
+    el,
+    root
+  ) {
+    if (
+      !el ||
+      !root
+    ) {
+      return;
+    }
+
+    const isTopChrome =
+      el.matches(
+        '[data-grid-nav="back"],' +
+        '.emby-tab-button,' +
+        '.mainDrawerButton,' +
+        '.headerHomeButton,' +
+        '.headerBackButton,' +
+        '.headerSearchButton'
+      );
+
+    if (
+      isTopChrome
+    ) {
+      let node =
+        root.parentElement;
+
+      while (
+        node &&
+        node !==
+          document.body
+      ) {
+        if (
+          node.scrollHeight >
+          node.clientHeight +
+          2
+        ) {
+          node.scrollTop =
+            0;
+        }
+
+        node =
+          node.parentElement;
+      }
+
+      if (
+        document.scrollingElement
+      ) {
+        document.scrollingElement
+          .scrollTop =
+          0;
+      }
+
+      document.documentElement
+        .scrollTop =
+        0;
+
+      document.body
+        .scrollTop =
+        0;
+
+      return;
+    }
+
+    /*
+     * Unlike a popup, a SeerrFin browse grid lives in the normal Jellyfin
+     * page. Let the browser reveal the selected card/Load More through the
+     * page's real scrolling ancestors instead of limiting the search to
+     * descendants of the grid root.
+     */
+    const rect =
+      el.getBoundingClientRect();
+
+    if (
+      rect.top >=
+        125 &&
+      rect.bottom <=
+        innerHeight -
+        90
+    ) {
+      return;
+    }
+
+    try {
+      el.scrollIntoView({
+        behavior:
+          'auto',
+
+        block:
+          'center',
+
+        inline:
+          'nearest'
+      });
+    } catch (_) {
+      el.scrollIntoView(
+        false
+      );
     }
   }
 
@@ -2790,6 +2928,14 @@
       scrollDetailTarget(
         target
       );
+    } else if (
+      context ===
+      'seerr-grid'
+    ) {
+      scrollSeerrGridTarget(
+        target,
+        root
+      );
     } else {
       scrollModalTarget(
         target,
@@ -2857,6 +3003,14 @@
     ) {
       scrollDetailTarget(
         target
+      );
+    } else if (
+      extContext ===
+      'seerr-grid'
+    ) {
+      scrollSeerrGridTarget(
+        target,
+        extRoot
       );
     } else {
       scrollModalTarget(
@@ -3022,6 +3176,27 @@
 
     zone =
       'seerr-grid';
+
+    /*
+     * The grid shell appears before SeerrFin's async cards. If Back was
+     * temporarily selected while the shell was empty, do not preserve that
+     * placeholder selection once the first real card arrives.
+     */
+    if (
+      cards.length
+    ) {
+      extContext =
+        null;
+
+      extRoot =
+        null;
+
+      extTargets =
+        [];
+
+      extIndex =
+        0;
+    }
 
     return setExt(
       'seerr-grid',
