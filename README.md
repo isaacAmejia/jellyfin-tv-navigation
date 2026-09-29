@@ -37,7 +37,7 @@ src/jellyfin-tv-navigation.js
 Internal build identifier:
 
 ```text
-2026.09.29-r12.12-auto-context-focus
+2026.09.30-r12.12.1-home-seerr-maintenance
 ```
 
 This is the current stable build for the Legacy/TV interface described in [Compatibility](docs/COMPATIBILITY.md). Development continues, with Jellyfin 12 Modern UI support tracked separately in [Modern UI Roadmap](docs/MODERN_UI_ROADMAP.md).
