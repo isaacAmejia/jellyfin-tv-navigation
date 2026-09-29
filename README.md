@@ -40,7 +40,7 @@ Internal build identifier:
 2026.09.29-r12.12-auto-context-focus
 ```
 
-This is the final tested build for the environment described in [Compatibility](docs/COMPATIBILITY.md).
+This is the current stable build for the Legacy/TV interface described in [Compatibility](docs/COMPATIBILITY.md). Development continues, with Jellyfin 12 Modern UI support tracked separately in [Modern UI Roadmap](docs/MODERN_UI_ROADMAP.md).
 
 ## Repository layout
 
@@ -53,7 +53,8 @@ This is the final tested build for the environment described in [Compatibility](
 ├── docs/
 │   ├── AI_DISCLOSURE.md
 │   ├── COMPATIBILITY.md
-│   └── INSTALLATION.md
+│   ├── INSTALLATION.md
+│   └── MODERN_UI_ROADMAP.md
 ├── CHANGELOG.md
 └── README.md
 ```
@@ -76,9 +77,11 @@ This is a personal/community customization, not an official Jellyfin client, Jel
 
 ## Project status
 
-**Final / maintenance mode.**
+**Active development.**
 
-The current script is the accepted final version. Future changes should be limited to compatibility fixes or clearly identified bugs rather than general redesigns.
+`main` contains the current stable Legacy/TV build. New compatibility work is developed separately and should not replace the stable script until it has been tested against the target Jellyfin layout.
+
+Current priority: **Jellyfin 12 Modern UI support** while preserving the existing Legacy/TV behavior.
 
 ## License
 
