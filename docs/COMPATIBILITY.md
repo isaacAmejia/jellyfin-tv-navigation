@@ -39,7 +39,7 @@ No other third-party plugin is required for core navigation.
 The current stable build is:
 
 ```text
-2026.09.30-r12.12.1-home-seerr-maintenance
+2026.09.30-r12.12.2-seerr-grid-navigation
 ```
 
 It targets Jellyfin 12.1-era **Legacy / TV UI**.
