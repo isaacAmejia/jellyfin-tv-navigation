@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '2026.09.29-r12.12-auto-context-focus';
+  const VERSION = '2026.09.30-r12.12.1-home-seerr-maintenance';
   const LONG_PRESS_REFRESH_MS = 900;
   const LONG_PRESS_HOME_MS = 900;
 
@@ -79,6 +79,7 @@
   let lastFocusMetrics = null;
 
   let homeRowSettleToken = 0;
+  let homeMediaSettleToken = 0;
 
   // Native Jellyfin library / drawer state
   let drawerStyle = null;
@@ -2946,6 +2947,94 @@
     ) || null;
   }
 
+  function seerrGridRoot() {
+    return [
+      ...document.querySelectorAll(
+        '[data-seerrfin-grid-view]'
+      )
+    ].find(
+      visible
+    ) || null;
+  }
+
+  function seerrGridCards(
+    root
+  ) {
+    return root
+      ?
+        uniqueVisible([
+          ...root.querySelectorAll(
+            '.itemsContainer > .card,' +
+            '[data-seerrfin-native-card="true"]'
+          )
+        ]).sort(
+          visualSort
+        )
+      :
+        [];
+  }
+
+  function seerrGridTargets(
+    root
+  ) {
+    rebuildHeaderTargets();
+
+    const back =
+      root?.querySelector(
+        '[data-grid-nav="back"]'
+      );
+
+    const loadMore =
+      root?.querySelector(
+        '[data-seerrfin-loadmore] button:not([disabled])'
+      );
+
+    return uniqueVisible([
+      ...headerTargets,
+      back,
+      ...seerrGridCards(
+        root
+      ),
+      loadMore
+    ]);
+  }
+
+  function enterSeerrGrid(
+    root
+  ) {
+    if (!root) {
+      return false;
+    }
+
+    const cards =
+      seerrGridCards(
+        root
+      );
+
+    const targets =
+      seerrGridTargets(
+        root
+      );
+
+    if (!targets.length) {
+      return false;
+    }
+
+    zone =
+      'seerr-grid';
+
+    return setExt(
+      'seerr-grid',
+      root,
+      targets,
+      cards[0] ||
+      root.querySelector(
+        '[data-grid-nav="back"]'
+      ) ||
+      targets[0]
+    );
+  }
+
   function enterSeerrDiscovery() {
     const root =
       seerrPageRoot();
@@ -4102,15 +4191,22 @@
         root
       );
 
+    const primary =
+      root.querySelector(
+        '.mainDetailButtons .btnPlay:not(.hide),' +
+        '.mainDetailButtons button[data-action="resume"]:not(.hide),' +
+        '.mainDetailButtons button[data-action="play"]:not(.hide)'
+      ) ||
+      detailActions(
+        root
+      )[0] ||
+      targets[0];
+
     return setExt(
       'detail',
       root,
       targets,
-
-      detailActions(
-        root
-      )[0] ||
-      targets[0]
+      primary
     );
   }
 
@@ -7765,6 +7861,93 @@
     return true;
   }
 
+  function beginHomePreferredFocus() {
+    const token =
+      ++homeMediaSettleToken;
+
+    rowIndex =
+      0;
+
+    cardIndex =
+      0;
+
+    mediaControlIndex =
+      0;
+
+    scrollEverythingToTop();
+
+    const settle =
+      () => {
+        if (
+          token !==
+          homeMediaSettleToken ||
+          (
+            location.hash &&
+            !location.hash.startsWith(
+              '#/home'
+            )
+          ) ||
+          detailRoot() ||
+          playerPage() ||
+          searchPageRoot() ||
+          nativeLibraryPageRoot() ||
+          drawerOpen()
+        ) {
+          return;
+        }
+
+        if (
+          getMediaControls()
+            .length
+        ) {
+          enterMediaBar(
+            false
+          );
+
+          homeMediaSettleToken++;
+
+          return;
+        }
+
+        rebuildRows();
+
+        if (
+          rows.length
+        ) {
+          zone =
+            'library';
+
+          selectRow(
+            0,
+            0
+          );
+        } else {
+          enterHeader(
+            true
+          );
+        }
+      };
+
+    settle();
+
+    [
+      120,
+      300,
+      650,
+      1000,
+      1600,
+      2500
+    ].forEach(
+      delay =>
+        setTimeout(
+          settle,
+          delay
+        )
+    );
+
+    return true;
+  }
+
   function restoreHomeAfterRoute() {
     if (
       location.hash &&
@@ -7783,28 +7966,7 @@
       return false;
     }
 
-    scrollEverythingToTop();
-    rebuildRows();
-
-    rowIndex = 0;
-    cardIndex = 0;
-    mediaControlIndex = 0;
-
-    if (rows.length) {
-      zone = 'library';
-      selectRow(0, 0);
-      return true;
-    }
-
-    if (
-      getMediaControls()
-        .length
-    ) {
-      enterMediaBar(false);
-      return true;
-    }
-
-    return enterHeader(true);
+    return beginHomePreferredFocus();
   }
 
   function handleRouteSignal() {
@@ -8142,6 +8304,49 @@
 
         root:
           details
+      };
+    }
+
+    const seerrGrid =
+      seerrGridRoot();
+
+    if (seerrGrid) {
+      const cards =
+        seerrGridCards(
+          seerrGrid
+        );
+
+      const gridHasCurrentCard =
+        cards.length ===
+          0 ||
+        extTargets.some(
+          target =>
+            cards.includes(
+              target
+            )
+        );
+
+      if (
+        zone !==
+          'seerr-grid' ||
+        extContext !==
+          'seerr-grid' ||
+        !extTargetsStillValid(
+          seerrGrid
+        ) ||
+        !gridHasCurrentCard
+      ) {
+        enterSeerrGrid(
+          seerrGrid
+        );
+      }
+
+      return {
+        type:
+          'seerr-grid',
+
+        root:
+          seerrGrid
       };
     }
 
@@ -9120,6 +9325,141 @@
     return true;
   }
 
+  function handleSeerrGrid(
+    event,
+    root
+  ) {
+    if (
+      ![
+        'ArrowLeft',
+        'ArrowRight',
+        'ArrowUp',
+        'ArrowDown',
+        'Enter',
+        ' '
+      ].includes(
+        event.key
+      )
+    ) {
+      return false;
+    }
+
+    consume(
+      event
+    );
+
+    const targets =
+      seerrGridTargets(
+        root
+      );
+
+    if (
+      !targets.length
+    ) {
+      return true;
+    }
+
+    const previous =
+      extTargets[
+        extIndex
+      ];
+
+    extContext =
+      'seerr-grid';
+
+    extRoot =
+      root;
+
+    extTargets =
+      targets;
+
+    let index =
+      previous
+        ?
+          extTargets.indexOf(
+            previous
+          )
+        :
+          -1;
+
+    if (
+      index < 0
+    ) {
+      const firstCard =
+        seerrGridCards(
+          root
+        )[0];
+
+      index =
+        firstCard
+          ?
+            extTargets.indexOf(
+              firstCard
+            )
+          :
+            0;
+    }
+
+    extIndex =
+      Math.max(
+        0,
+        index
+      );
+
+    if (
+      event.key ===
+      'ArrowLeft'
+    ) {
+      moveExt(
+        'left'
+      );
+    } else if (
+      event.key ===
+      'ArrowRight'
+    ) {
+      moveExt(
+        'right'
+      );
+    } else if (
+      event.key ===
+      'ArrowUp'
+    ) {
+      moveExt(
+        'up'
+      );
+    } else if (
+      event.key ===
+      'ArrowDown'
+    ) {
+      moveExt(
+        'down'
+      );
+    } else if (
+      event.key ===
+      'Enter' ||
+      event.key ===
+      ' '
+    ) {
+      const target =
+        extTargets[
+          extIndex
+        ];
+
+      if (target) {
+        click(
+          target
+        );
+
+        setTimeout(
+          resolveContext,
+          80
+        );
+      }
+    }
+
+    return true;
+  }
+
   function enterFirstHomeRowWithSettle() {
     const token =
       ++homeRowSettleToken;
@@ -9189,6 +9529,8 @@
   function handleHome(
     event
   ) {
+    homeMediaSettleToken++;
+
     const target =
       event.target;
 
@@ -9590,6 +9932,18 @@
 
     if (
       context.type ===
+      'seerr-grid'
+    ) {
+      handleSeerrGrid(
+        event,
+        context.root
+      );
+
+      return;
+    }
+
+    if (
+      context.type ===
       'seerr'
     ) {
       handleSeerr(
@@ -9959,32 +10313,7 @@
     initial.type ===
     'home'
   ) {
-    if (
-      rows.length
-    ) {
-      zone =
-        'library';
-
-      selectRow(
-        0,
-        0
-      );
-    } else if (
-      getMediaControls()
-        .length
-    ) {
-      zone =
-        'media';
-
-      mediaControlIndex =
-        0;
-
-      showMediaControlFocus();
-    } else {
-      enterHeader(
-        true
-      );
-    }
+    beginHomePreferredFocus();
   }
 
   maintainScopedObservers();
