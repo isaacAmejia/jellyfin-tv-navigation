@@ -1,6 +1,6 @@
 # Installation
 
-This guide installs the stable Jellyfin TV Navigation script into **Jellyfin 12** using **JavaScript Injector**.
+This guide installs the stable JellyNav script into **Jellyfin 12** using **JavaScript Injector**.
 
 ## Before you start
 
@@ -37,7 +37,7 @@ In Jellyfin:
 6. Find **JavaScript Injector** and install it.
 7. **Restart the Jellyfin server.**
 
-## 2. Add Jellyfin TV Navigation
+## 2. Add JellyNav
 
 1. Open **Dashboard → Plugins → JavaScript Injector**.
    - Depending on the installed version, it may also appear as **JS Injector** in the dashboard sidebar.
@@ -45,7 +45,7 @@ In Jellyfin:
 3. Set the name to:
 
 ```text
-Jellyfin TV Navigation
+JellyNav
 ```
 
 4. Open the production source file:
@@ -56,7 +56,7 @@ Jellyfin TV Navigation
 6. Make sure the entry is **Enabled**.
 7. Save.
 
-Do not wrap the source in another `<script>` tag and do not run multiple copies of Jellyfin TV Navigation at the same time.
+Do not wrap the source in another `<script>` tag and do not run multiple copies of JellyNav at the same time.
 
 ## 3. Use the stable Jellyfin layout
 
@@ -85,7 +85,7 @@ window.__JELLYFIN_TV_REMOTE__?.version
 The stable build should report:
 
 ```text
-2026.09.30-r12.12.2-seerr-grid-navigation
+2026.09.30-r12.19-jellymark-compatibility
 ```
 
 For more diagnostic information:
@@ -114,11 +114,17 @@ After installation, confirm:
 
 ## Optional integrations
 
+### JellyMark
+
+JellyMark is optional and independent from JellyNav. If both are installed, JellyNav automatically provides remote navigation for JellyMark's Watchlist interface; no extra configuration is required.
+
+Project: [isaacAmejia/jellymark](https://github.com/isaacAmejia/jellymark)
+
 ### SeerrFin
 
 No additional navigation configuration is required.
 
-If SeerrFin is installed, Jellyfin TV Navigation detects supported SeerrFin UI automatically, including:
+If SeerrFin is installed, JellyNav detects supported SeerrFin UI automatically, including:
 
 - Movies / TV Shows / Requests tabs
 - discovery rows
@@ -134,11 +140,11 @@ Project: [varunaditya-plus/SeerrFin](https://github.com/varunaditya-plus/SeerrFi
 
 Media Bar is optional.
 
-When present, Jellyfin TV Navigation detects it automatically and uses the plugin's native slideshow API for manual previous/next navigation.
+When present, JellyNav detects it automatically and uses the plugin's native slideshow API for manual previous/next navigation.
 
 Project: [IAmParadox27/jellyfin-plugin-media-bar](https://github.com/IAmParadox27/jellyfin-plugin-media-bar)
 
-The patch in `patches/media-bar-jellyfin12-autoplay-fix.patch` is only for the separate autoplay issue seen with an affected Media Bar build. **Do not apply it just to install Jellyfin TV Navigation.**
+The patch in `patches/media-bar-jellyfin12-autoplay-fix.patch` is only for the separate autoplay issue seen with an affected Media Bar build. **Do not apply it just to install JellyNav.**
 
 ### Jellyfin Enhanced
 
@@ -152,9 +158,9 @@ GlassFin and Home Screen Sections were part of the original test setup, but neit
 
 ## Updating
 
-To update Jellyfin TV Navigation:
+To update JellyNav:
 
-1. Open the existing **Jellyfin TV Navigation** entry in JavaScript Injector.
+1. Open the existing **JellyNav** entry in JavaScript Injector.
 2. Replace its contents with the complete current `src/jellyfin-tv-navigation.js` file.
 3. Save.
 4. Fully refresh/restart the Web client.
@@ -168,9 +174,9 @@ Do not create a second enabled entry for a newer release. Replace the existing s
 
 ## Removing
 
-To remove Jellyfin TV Navigation:
+To remove JellyNav:
 
-1. Disable or delete the **Jellyfin TV Navigation** entry in JavaScript Injector.
+1. Disable or delete the **JellyNav** entry in JavaScript Injector.
 2. Refresh the client.
 
 Removing the navigation entry does not require uninstalling JavaScript Injector if you use it for other scripts.
@@ -183,7 +189,7 @@ Check:
 
 - JavaScript Injector is installed.
 - Jellyfin was restarted after installing JavaScript Injector.
-- The Jellyfin TV Navigation script entry is enabled.
+- The JellyNav script entry is enabled.
 - The complete source file was pasted without truncation.
 - The client was fully refreshed after saving.
 
@@ -196,30 +202,30 @@ The stable build is for **Legacy / TV**. Confirm the client is not using Jellyfi
 First confirm the current version reports:
 
 ```text
-2026.09.30-r12.12.2-seerr-grid-navigation
+2026.09.30-r12.19-jellymark-compatibility
 ```
 
 This maintenance build specifically adds Home startup focus settling.
 
 ### Details starts on Back instead of Play / Resume
 
-Confirm the same r12.12.2 build is loaded. It explicitly prioritizes Jellyfin's visible Play/Resume control when a Details page opens.
+Confirm the same r12.19 build is loaded. It explicitly prioritizes Jellyfin's visible Play/Resume control when a Details page opens.
 
 ### A selection remains behind a popup
 
-Confirm only one copy of Jellyfin TV Navigation is enabled. The stable build re-evaluates the active context when new overlays mount.
+Confirm only one copy of JellyNav is enabled. The stable build re-evaluates the active context when new overlays mount.
 
 ### Two focus rings or inconsistent movement
 
-This usually means more than one navigation script revision is being injected. Keep only one enabled **Jellyfin TV Navigation** entry.
+This usually means more than one navigation script revision is being injected. Keep only one enabled **JellyNav** entry.
 
 ### SeerrFin provider/network page does not navigate
 
-Confirm the stable r12.12.2 build is installed. These full-grid pages were added in the maintenance release.
+Confirm the stable r12.19 build is installed. These full-grid pages were added in the maintenance release.
 
 ### Media Bar does not autoplay
 
-Media Bar autoplay is not controlled by Jellyfin TV Navigation. See the separate compatibility patch and [Compatibility](COMPATIBILITY.md#media-bar).
+Media Bar autoplay is not controlled by JellyNav. See the separate compatibility patch and [Compatibility](COMPATIBILITY.md#media-bar).
 
 ## Security note
 
