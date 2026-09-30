@@ -1,20 +1,20 @@
 (() => {
   'use strict';
 
-  const VERSION = '2026.09.30-r12.18.1';
+  const VERSION = '2026.09.30-r12.19-jellymark-compatibility';
   const LONG_PRESS_REFRESH_MS = 900;
   const LONG_PRESS_HOME_MS = 900;
 
   try {
     window.__JF_LIBRARY_TEST_CLEANUP__?.();
   } catch (e) {
-    console.warn('[JF TV] Previous cleanup failed:', e);
+    console.warn('[JellyNav] Previous cleanup failed:', e);
   }
 
   try {
     window.__JELLYFIN_TV_REMOTE__?.cleanup?.();
   } catch (e) {
-    console.warn('[JF TV] Previous remote cleanup failed:', e);
+    console.warn('[JellyNav] Previous remote cleanup failed:', e);
   }
 
   // ============================================================
@@ -92,6 +92,13 @@
   let universalHomeTimer = null;
   let backFocusRestoreToken = 0;
 
+  let watchlistRow = 0;
+  let watchlistCol = 0;
+  let watchlistPendingRestore = null;
+  let watchlistActionFocus = null;
+  let watchlistRowsCacheRoot = null;
+  let watchlistRowsCache = [];
+  let watchlistRowsDirty = true;
   let parentMainTabKey = 'home';
 
   // Native Jellyfin library / drawer state
@@ -185,7 +192,7 @@
       return true;
     } catch (error) {
       console.warn(
-        '[JF TV] Click failed:',
+        '[JellyNav] Click failed:',
         error
       );
 
@@ -546,6 +553,24 @@
         }
       };
       // Close one layer at a time through its owner, before changing routes.
+      const watchlist =
+        watchlistLayer();
+
+      if (watchlist) {
+        if (!closing.has(watchlist.root)) {
+          closing.add(
+            watchlist.root
+          );
+
+          closeWatchlistLayer(
+            watchlist
+          );
+        }
+
+        later();
+        return;
+      }
+
       const overlay = playerActionSheet() || nativeDialog() || requestFormRoot() ||
         seerrInfoModal() || enhancedInfoModal();
       if (overlay) {
@@ -855,6 +880,15 @@
         max-width: 470px;
       }
 
+      #jws3-overlay .jws3-progress-row {
+        border-radius: 12px;
+      }
+
+      #jws3-overlay .jfTvWatchlistActionFocus {
+        outline: 3px solid rgba(255,255,255,.98) !important;
+        outline-offset: 2px;
+        border-radius: 9px;
+      }
     `;
 
     document.head.appendChild(
@@ -969,6 +1003,12 @@
   function hideFocus() {
     focusRevealToken += 1;
 
+    if (watchlistActionFocus) {
+      watchlistActionFocus.classList.remove(
+        'jfTvWatchlistActionFocus'
+      );
+      watchlistActionFocus = null;
+    }
 
     if (focusArrivalAnimation) {
       try {
@@ -1807,6 +1847,12 @@
       return null;
     }
 
+    if (
+      target.id ===
+        'jws3-home-tab'
+    ) {
+      return 'watchlist';
+    }
 
     const label =
       (
@@ -2188,6 +2234,39 @@
            * newly active tab. Content is entered only when Down is pressed.
            */
           if (
+            target?.id ===
+              'jws3-home-tab'
+          ) {
+            const settleWatchlist =
+              () => {
+                const layer =
+                  watchlistLayer();
+
+                if (layer) {
+                  enterWatchlistLayer(
+                    layer,
+                    target
+                  );
+                } else {
+                  scheduleContextRefresh(
+                    80
+                  );
+                }
+              };
+
+            settleWatchlist();
+
+            setTimeout(
+              settleWatchlist,
+              80
+            );
+
+            maintainScopedObservers();
+
+            return;
+          }
+
+          if (
             target?.matches(
               '.emby-tab-button'
             )
@@ -2310,7 +2389,9 @@
         activeMainTabKey();
 
       if (
-        activeKey
+        activeKey &&
+        activeKey !==
+          'watchlist'
       ) {
         parentMainTabKey =
           activeKey;
@@ -3735,6 +3816,905 @@
   }
 
   // ============================================================
+  // WATCHLIST UI INTEGRATION
+  // ============================================================
+
+  function watchlistLayer() {
+    const dialog = [
+      ...document.querySelectorAll(
+        '.jws3-dialog'
+      )
+    ].find(
+      visible
+    );
+
+    if (dialog) {
+      return {
+        type:
+          'watchlist-dialog',
+
+        root:
+          dialog
+      };
+    }
+
+    const overlay =
+      document.getElementById(
+        'jws3-overlay'
+      );
+
+    if (
+      overlay &&
+      !overlay.hidden &&
+      visible(
+        overlay
+      )
+    ) {
+      return {
+        type:
+          'watchlist',
+
+        root:
+          overlay
+      };
+    }
+
+    return null;
+  }
+
+  function watchlistHeaderRow() {
+    return uniqueVisible([
+      ...document.querySelectorAll(
+        '.skinHeader .headerTabs .emby-tab-button,' +
+        '.headerTabs .emby-tab-button'
+      )
+    ]);
+  }
+
+  function watchlistInteractive(root, selector) {
+    if (!root) return [];
+
+    return uniqueVisible([
+      ...root.querySelectorAll(selector)
+    ]).filter(
+      el =>
+        !el.matches('.jws3-card-remove') &&
+        !el.closest('[hidden],[aria-hidden="true"]')
+    );
+  }
+
+  function watchlistVisualRows(elements) {
+    const metrics =
+      new Map();
+
+    for (const el of elements) {
+      metrics.set(
+        el,
+        el.getBoundingClientRect()
+      );
+    }
+
+    const sorted =
+      [...elements].sort(
+        (left, right) => {
+          const a =
+            metrics.get(left);
+
+          const b =
+            metrics.get(right);
+
+          const tolerance =
+            Math.max(
+              24,
+              Math.min(
+                a.height,
+                b.height
+              ) * 0.45
+            );
+
+          return (
+            Math.abs(
+              a.top -
+              b.top
+            ) <= tolerance
+          )
+            ? a.left - b.left
+            : a.top - b.top;
+        }
+      );
+
+    const rows = [];
+
+    for (const el of sorted) {
+      const rect =
+        metrics.get(el);
+
+      const center =
+        rect.top +
+        rect.height / 2;
+
+      let row =
+        rows.find(
+          entry =>
+            Math.abs(
+              entry.center -
+              center
+            ) <=
+            Math.max(
+              28,
+              Math.min(
+                rect.height,
+                entry.height
+              ) * 0.45
+            )
+        );
+
+      if (!row) {
+        row = {
+          center,
+          height:
+            rect.height,
+          items: []
+        };
+
+        rows.push(
+          row
+        );
+      }
+
+      row.items.push(
+        el
+      );
+
+      row.height =
+        Math.max(
+          row.height,
+          rect.height
+        );
+    }
+
+    return rows
+      .sort(
+        (left, right) =>
+          left.center -
+          right.center
+      )
+      .map(
+        row =>
+          row.items.sort(
+            (left, right) =>
+              metrics.get(left).left -
+              metrics.get(right).left
+          )
+      );
+  }
+
+  function watchlistRows(layer) {
+    const root = layer?.root;
+    if (!root) return [];
+
+    if (layer.type === 'watchlist-dialog') {
+      return watchlistVisualRows(
+        watchlistInteractive(
+          root,
+          'button:not([disabled]),' +
+          'input:not([type="hidden"]):not([disabled]),' +
+          'select:not([disabled]),' +
+          'textarea:not([disabled])'
+        )
+      );
+    }
+
+    if (
+      !watchlistRowsDirty &&
+      watchlistRowsCacheRoot ===
+        root &&
+      root.isConnected
+    ) {
+      return watchlistRowsCache;
+    }
+
+    const rows = [];
+
+    const header = watchlistHeaderRow();
+    if (header.length) rows.push(header);
+
+    const sections = watchlistInteractive(root,'.jws3-tabs .jws3-tab');
+    if (sections.length) rows.push(sections);
+
+    const shell = root.querySelector('.jws3-shell') || root;
+
+    for (const child of shell.children) {
+      if (child.matches?.('.jws3-head')) continue;
+
+      if (
+        child.matches?.(
+          '.jws3-toolbar,' +
+          '.jws3-tools,' +
+          '.jws3-chips,' +
+          '.jws3-stats-nav'
+        )
+      ) {
+        const controls = watchlistInteractive(
+          child,
+          'button:not([disabled]),' +
+          'input:not([type="hidden"]):not([disabled]),' +
+          'select:not([disabled]),' +
+          'textarea:not([disabled])'
+        );
+
+        if (controls.length) rows.push(controls);
+      }
+    }
+
+    const progressRows =
+      watchlistInteractive(
+        root,
+        '.jws3-progress-row'
+      );
+
+    if (progressRows.length) {
+      rows.push(
+        ...watchlistVisualRows(
+          progressRows
+        )
+      );
+    } else {
+      const content =
+        watchlistInteractive(
+          root,
+          '.jws3-card-open'
+        );
+
+      rows.push(
+        ...watchlistVisualRows(
+          content
+        )
+      );
+    }
+    watchlistRowsCache =
+      rows.filter(
+        row =>
+          row.length
+      );
+
+    watchlistRowsCacheRoot =
+      root;
+
+    watchlistRowsDirty =
+      false;
+
+    return watchlistRowsCache;
+  }
+
+  function flattenWatchlistRows(rows) {
+    return rows.flat();
+  }
+
+  function watchlistPositionForTarget(rows, target) {
+    if (!target) return null;
+
+    for (let row = 0; row < rows.length; row++) {
+      const col = rows[row].indexOf(target);
+      if (col >= 0) return { row, col };
+    }
+
+    return null;
+  }
+
+  function watchlistTargetKey(target) {
+    if (!target) return null;
+
+    return {
+      id: target.id || null,
+      section: target.dataset?.section || null,
+      aria: target.getAttribute?.('aria-label') || null,
+      title: target.getAttribute?.('title') || null,
+      text: (target.textContent || '').replace(/\s+/g,' ').trim(),
+      tag: target.tagName,
+
+      progressTitle:
+        target.matches?.(
+          '.jws3-progress-row'
+        )
+          ? (
+              target.querySelector(
+                '.jws3-progress-info h3'
+              )?.textContent ||
+              ''
+            ).trim()
+          : null
+    };
+  }
+
+  function findWatchlistTargetByKey(rows, key) {
+    if (!key) return null;
+    const targets = flattenWatchlistRows(rows);
+
+    return (
+      targets.find(el => key.id && el.id === key.id) ||
+      targets.find(el => key.section && el.dataset?.section === key.section) ||
+      targets.find(el => key.aria && el.getAttribute?.('aria-label') === key.aria) ||
+      targets.find(el => key.title && el.getAttribute?.('title') === key.title) ||
+      targets.find(el =>
+        key.progressTitle &&
+        el.matches?.(
+          '.jws3-progress-row'
+        ) &&
+        (
+          el.querySelector(
+            '.jws3-progress-info h3'
+          )?.textContent ||
+          ''
+        ).trim() ===
+          key.progressTitle
+      ) ||
+      targets.find(el =>
+        key.text &&
+        el.tagName === key.tag &&
+        (el.textContent || '').replace(/\s+/g,' ').trim() === key.text
+      ) ||
+      null
+    );
+  }
+
+  function watchlistTargets(root) {
+    const layer = watchlistLayer();
+    if (!layer || layer.root !== root) return [];
+    return flattenWatchlistRows(watchlistRows(layer));
+  }
+
+  function watchlistVisualTarget(target) {
+    if (!target) return null;
+
+    if (
+      target.matches(
+        '.jws3-progress-row'
+      )
+    ) {
+      return target;
+    }
+
+    if (target.matches('.jws3-card-open')) {
+      return target.querySelector('.jws3-poster') || target;
+    }
+
+    return target;
+  }
+
+  function showWatchlistFocus(
+    rows = null,
+    layer = null
+  ) {
+    layer =
+      layer ||
+      watchlistLayer();
+
+    if (!layer) {
+      hideFocus();
+      return;
+    }
+
+    rows =
+      rows ||
+      watchlistRows(
+        layer
+      );
+    if (!rows.length) {
+      hideFocus();
+      return;
+    }
+
+    watchlistRow = Math.max(0,Math.min(watchlistRow,rows.length-1));
+    watchlistCol = Math.max(0,Math.min(watchlistCol,rows[watchlistRow].length-1));
+
+    const target = rows[watchlistRow][watchlistCol];
+
+    extContext = layer.type;
+    extRoot = layer.root;
+    extTargets = flattenWatchlistRows(rows);
+    extIndex = extTargets.indexOf(target);
+
+    if (!target) {
+      hideFocus();
+      return;
+    }
+
+    scrollModalTarget(target,layer.root);
+
+    try {
+      target.focus?.({preventScroll:true});
+    } catch (_) {
+      try { target.focus?.(); } catch (_) {}
+    }
+
+    if (watchlistActionFocus) {
+      watchlistActionFocus.classList.remove(
+        'jfTvWatchlistActionFocus'
+      );
+      watchlistActionFocus = null;
+    }
+
+    if (
+      target.matches?.(
+        '.jws3-progress-row'
+      )
+    ) {
+      const action =
+        target.querySelector(
+          '.jws3-progress-info button:not([disabled])'
+        );
+
+      if (action) {
+        action.classList.add(
+          'jfTvWatchlistActionFocus'
+        );
+        watchlistActionFocus =
+          action;
+      }
+    }
+
+    showFocusElement(
+      watchlistVisualTarget(
+        target
+      )
+    );
+  }
+
+  function enterWatchlistLayer(layer, preferred = null) {
+    const rows = watchlistRows(layer);
+
+    zone = layer?.type || 'watchlist';
+    extContext = layer?.type || 'watchlist';
+    extRoot = layer?.root || null;
+    extTargets = flattenWatchlistRows(rows);
+
+    if (!rows.length) {
+      watchlistRow = 0;
+      watchlistCol = 0;
+      extIndex = 0;
+      hideFocus();
+      return false;
+    }
+
+    let target = preferred;
+
+    if (watchlistPendingRestore) {
+      target = findWatchlistTargetByKey(rows,watchlistPendingRestore.key) || target;
+
+      if (!target) {
+        watchlistRow = Math.min(watchlistPendingRestore.row,rows.length-1);
+        watchlistCol = Math.min(watchlistPendingRestore.col,rows[watchlistRow].length-1);
+      }
+
+      watchlistPendingRestore = null;
+    }
+
+    if (!target) {
+      const active = document.activeElement;
+
+      if (
+        active instanceof Element &&
+        (layer.root.contains(active) || active.id === 'jws3-home-tab')
+      ) {
+        target = active;
+      }
+    }
+
+    if (!target) {
+      target =
+        rows.flat().find(el => el.matches?.('.jws3-tab[aria-pressed="true"]')) ||
+        rows[0][0];
+    }
+
+    const position = watchlistPositionForTarget(rows,target);
+
+    if (position) {
+      watchlistRow = position.row;
+      watchlistCol = position.col;
+    }
+
+    showWatchlistFocus(
+      rows,
+      layer
+    );
+
+    return true;
+  }
+
+  function restoreAfterWatchlistClose() {
+    watchlistPendingRestore = null;
+
+    setTimeout(() => {
+      const layer = watchlistLayer();
+
+      if (layer) {
+        enterWatchlistLayer(layer);
+        return;
+      }
+
+      resetTransientNavigationState('route-reset');
+
+      const active = document.activeElement;
+
+      if (
+        active instanceof Element &&
+        active.matches('.emby-tab-button') &&
+        visible(active)
+      ) {
+        rebuildHeaderTargets();
+        const index = headerTargets.indexOf(active);
+
+        if (index >= 0) {
+          headerIndex = index;
+          zone = 'header';
+          showFocusElement(active);
+          return;
+        }
+      }
+
+      resolveContext();
+    },80);
+  }
+
+  function closeWatchlistLayer(layer) {
+    const root = layer?.root;
+    if (!root) return false;
+
+    if (
+      layer.type === 'watchlist-dialog' &&
+      typeof root.jwsClose === 'function'
+    ) {
+      root.jwsClose();
+      restoreAfterWatchlistClose();
+      return true;
+    }
+
+    const close = [
+      ...root.querySelectorAll(
+        '.btnClose,' +
+        '[aria-label="Back to Jellyfin"]'
+      )
+    ].find(visible);
+
+    if (close) {
+      click(close);
+      restoreAfterWatchlistClose();
+      return true;
+    }
+
+    return false;
+  }
+
+  function activateWatchlistTarget(target) {
+    if (!target) return false;
+
+    if (
+      target.matches?.(
+        '.jws3-progress-row'
+      )
+    ) {
+      watchlistPendingRestore = {
+        row: watchlistRow,
+        col: watchlistCol,
+        key:
+          watchlistTargetKey(
+            target
+          )
+      };
+
+      const action =
+        target.querySelector(
+          '.jws3-progress-info button:not([disabled])'
+        );
+
+      return action
+        ? click(
+            action
+          )
+        : false;
+    }
+
+    if (target instanceof HTMLSelectElement) {
+      return enterSelectMode(target,target);
+    }
+
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement
+    ) {
+      openKeyboard(target);
+      return true;
+    }
+
+    const label = (
+      target.getAttribute?.('aria-label') ||
+      target.textContent ||
+      ''
+    ).trim();
+
+    const isRefresh = /refresh/i.test(label) || label === '↻';
+
+    if (!isRefresh) {
+      watchlistPendingRestore = {
+        row: watchlistRow,
+        col: watchlistCol,
+        key: watchlistTargetKey(target)
+      };
+    } else {
+      watchlistPendingRestore = null;
+    }
+
+    const activated = click(target);
+
+    setTimeout(() => {
+      const layer = watchlistLayer();
+
+      if (layer) {
+        enterWatchlistLayer(layer);
+      } else {
+        restoreAfterWatchlistClose();
+      }
+    },90);
+
+    return activated;
+  }
+
+  function handleWatchlist(event, layer) {
+    if (['Escape','BrowserBack','GoBack'].includes(event.key)) {
+      consume(
+        event
+      );
+
+      if (
+        layer.type ===
+          'watchlist-dialog'
+      ) {
+        closeWatchlistLayer(
+          layer
+        );
+
+        setTimeout(
+          () =>
+            focusMainTab(
+              'watchlist',
+              false
+            ),
+          90
+        );
+
+        return true;
+      }
+
+      const rows =
+        watchlistRows(
+          layer
+        );
+
+      const current =
+        rows[
+          Math.max(
+            0,
+            Math.min(
+              watchlistRow,
+              rows.length - 1
+            )
+          )
+        ]?.[
+          Math.max(
+            0,
+            watchlistCol
+          )
+        ];
+
+      if (
+        current?.id ===
+          'jws3-home-tab'
+      ) {
+        return true;
+      }
+
+      focusMainTab(
+        'watchlist',
+        false
+      );
+
+      const headerRow =
+        rows.findIndex(
+          row =>
+            row.some(
+              target =>
+                target.id ===
+                  'jws3-home-tab'
+            )
+        );
+
+      if (
+        headerRow >= 0
+      ) {
+        watchlistRow =
+          headerRow;
+
+        watchlistCol =
+          Math.max(
+            0,
+            rows[
+              headerRow
+            ].findIndex(
+              target =>
+                target.id ===
+                  'jws3-home-tab'
+            )
+          );
+      }
+
+      return true;
+    }
+
+    if (
+      ![
+        'ArrowLeft',
+        'ArrowRight',
+        'ArrowUp',
+        'ArrowDown',
+        'Enter',
+        ' '
+      ].includes(event.key)
+    ) {
+      return false;
+    }
+
+    consume(event);
+
+    const rows = watchlistRows(layer);
+
+    if (!rows.length) {
+      hideFocus();
+      return true;
+    }
+
+    watchlistRow = Math.max(0,Math.min(watchlistRow,rows.length-1));
+    watchlistCol = Math.max(0,Math.min(watchlistCol,rows[watchlistRow].length-1));
+
+    if (event.key === 'ArrowLeft') {
+      watchlistCol = Math.max(0,watchlistCol-1);
+    } else if (event.key === 'ArrowRight') {
+      watchlistCol = Math.min(rows[watchlistRow].length-1,watchlistCol+1);
+    } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      const current =
+        rows[
+          watchlistRow
+        ][
+          watchlistCol
+        ];
+
+      /*
+       * The Watchlist main tab is part of Jellyfin's header, outside the
+       * overlay DOM. Make the TV handoff deterministic: Down always enters
+       * the Watchlist section-tab row, selecting its active section.
+       */
+      if (
+        event.key ===
+          'ArrowDown' &&
+        current?.id ===
+          'jws3-home-tab'
+      ) {
+        const sectionRow =
+          rows.findIndex(
+            row =>
+              row.some(
+                target =>
+                  target.matches?.(
+                    '.jws3-tab'
+                  )
+              )
+          );
+
+        if (sectionRow >= 0) {
+          watchlistRow =
+            sectionRow;
+
+          const activeCol =
+            rows[
+              sectionRow
+            ].findIndex(
+              target =>
+                target.getAttribute?.(
+                  'aria-pressed'
+                ) ===
+                  'true'
+            );
+
+          watchlistCol =
+            activeCol >= 0
+              ? activeCol
+              : 0;
+        }
+      } else {
+        const rect =
+          current?.getBoundingClientRect();
+
+        const currentX =
+          rect
+            ? rect.left +
+              rect.width / 2
+            : 0;
+
+        const nextRow =
+          event.key ===
+            'ArrowUp'
+            ? watchlistRow - 1
+            : watchlistRow + 1;
+
+        if (
+          nextRow >= 0 &&
+          nextRow < rows.length
+        ) {
+          watchlistRow =
+            nextRow;
+
+          let bestCol =
+            0;
+
+          let bestDistance =
+            Infinity;
+
+          const targetMetrics =
+            rows[
+              watchlistRow
+            ].map(
+              target => ({
+                target,
+                rect:
+                  target.getBoundingClientRect()
+              })
+            );
+
+          targetMetrics.forEach(
+            (
+              entry,
+              index
+            ) => {
+              const x =
+                entry.rect.left +
+                entry.rect.width / 2;
+
+              const distance =
+                Math.abs(
+                  x -
+                  currentX
+                );
+
+              if (
+                distance <
+                bestDistance
+              ) {
+                bestDistance =
+                  distance;
+
+                bestCol =
+                  index;
+              }
+            }
+          );
+
+          watchlistCol =
+            bestCol;
+        }
+      }
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      return activateWatchlistTarget(rows[watchlistRow][watchlistCol]);
+    }
+
+    showWatchlistFocus(
+      rows,
+      layer
+    );
+
+    return true;
+  }
+
+  // ============================================================
   // JELLYFIN ENHANCED
   // ============================================================
 
@@ -5125,17 +6105,49 @@
     keyboardColumn =
       0;
 
+    const watchlistInput =
+      input?.closest?.(
+        '#jws3-overlay,' +
+        '.jws3-dialog'
+      );
+
     if (
       submit &&
       input
     ) {
-      submitSearch(
-        input
-      );
+      if (watchlistInput) {
+        dispatchValueEvents(
+          input
+        );
+      } else {
+        submitSearch(
+          input
+        );
+      }
     }
 
     setTimeout(
       () => {
+        if (
+          input &&
+          watchlistInput &&
+          visible(
+            input
+          )
+        ) {
+          const layer =
+            watchlistLayer();
+
+          if (layer) {
+            enterWatchlistLayer(
+              layer,
+              input
+            );
+
+            return;
+          }
+        }
+
         if (
           input &&
           visible(
@@ -5976,9 +6988,9 @@
           const overlay = enhancedPauseScreen();
           if (overlay) dismissEnhancedPauseScreen(overlay, false);
           scheduleContextRefresh(80);
-        }).catch(error => console.warn('[JF TV] Resume failed:', error));
+        }).catch(error => console.warn('[JellyNav] Resume failed:', error));
       } catch (error) {
-        console.warn('[JF TV] Resume failed:', error);
+        console.warn('[JellyNav] Resume failed:', error);
       }
     } else {
       // A play event may already have resumed the video before key release.
@@ -6047,7 +7059,7 @@
       return true;
     } catch (error) {
       console.warn(
-        '[JF TV] Native Jellyfin OSD command failed:',
+        '[JellyNav] Native Jellyfin OSD command failed:',
         error
       );
 
@@ -8968,7 +9980,9 @@
       '.promptDialog,' +
       '.bst-popout-wrapper,' +
       '.je-more-info-modal,' +
-      '.bst-request-form';
+      '.bst-request-form,' +
+      '#jws3-overlay,' +
+      '.jws3-dialog';
 
     for (
       const mutation of
@@ -9044,6 +10058,20 @@
                 : mutation.target
                     ?.parentElement;
 
+            if (
+              target &&
+              (
+                target.closest?.(
+                  '#jws3-overlay'
+                ) ||
+                target.closest?.(
+                  '.skinHeader,.headerTabs'
+                )
+              )
+            ) {
+              watchlistRowsDirty =
+                true;
+            }
 
             if (
               target &&
@@ -9104,6 +10132,8 @@
 
     homeMediaSettleToken++;
     homeRowSettleToken++;
+    watchlistRowsDirty =
+      true;
     lastLocationKey =
       location.href;
 
@@ -9317,6 +10347,29 @@
         root:
           keyboardRoot
       };
+    }
+
+    const watchlist =
+      watchlistLayer();
+
+    if (watchlist) {
+      parentMainTabKey =
+        'watchlist';
+      if (
+        zone !==
+          watchlist.type ||
+        extContext !==
+          watchlist.type ||
+        !extTargetsStillValid(
+          watchlist.root
+        )
+      ) {
+        enterWatchlistLayer(
+          watchlist
+        );
+      }
+
+      return watchlist;
     }
 
     const request =
@@ -9611,7 +10664,9 @@
         activeMainTabKey();
 
       if (
-        activeKey
+        activeKey &&
+        activeKey !==
+          'watchlist'
       ) {
         parentMainTabKey =
           activeKey;
@@ -9669,8 +10724,10 @@
           nativeLibrary;
 
         /*
-         * A freshly opened downloaded Movies / Shows library is a Home
-         * subsection. Down enters the library's native controls and grid.
+         * A freshly opened Movies / TV library should begin on the
+         * active Jellyfin tab (Movies or Shows), not the first poster.
+         * Down from the tab still enters the library's native controls
+         * and then its grid.
          */
         enterHeader(
           true
@@ -9731,6 +10788,8 @@
         'route-reset' ||
       [
         'native-dialog',
+        'watchlist',
+        'watchlist-dialog',
         'request-form',
         'seerr-modal',
         'enhanced-modal',
@@ -11274,6 +12333,19 @@
     const context =
       resolveContext();
 
+    if (
+      context.type ===
+        'watchlist' ||
+      context.type ===
+        'watchlist-dialog'
+    ) {
+      handleWatchlist(
+        event,
+        context
+      );
+
+      return;
+    }
 
     if (context.type === 'enhanced-pause-screen') {
       handleEnhancedPauseScreen(event, context.root);
@@ -11609,6 +12681,14 @@
 
     clearNativeLibraryState();
 
+    watchlistRowsCacheRoot =
+      null;
+
+    watchlistRowsCache =
+      [];
+
+    watchlistRowsDirty =
+      true;
 
     selectMode =
       null;
@@ -11636,6 +12716,8 @@
       version:
         VERSION,
 
+      watchlistKeyOwnership:
+        true,
 
       cleanup,
 
