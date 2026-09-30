@@ -1,8 +1,8 @@
 # JellyNav
 
-**Remote-friendly D-pad navigation for Jellyfin Web.**
+**JellyNav adds TV remote and D-pad navigation to Jellyfin Web, including Raspberry Pi and other living-room browser or webview setups.** It makes Jellyfin easier to control from a couch by adding predictable focus, remote-friendly Back behavior, and player controls without replacing Jellyfin or requiring a custom client.
 
-JellyNav makes Jellyfin Web feel more natural on a TV. It adds predictable focus, D-pad navigation, remote-friendly Back behavior, and player controls without replacing Jellyfin or requiring a custom client.
+Trying to **control Jellyfin with a TV remote**, add **D-pad navigation**, or use **Jellyfin Web on a Raspberry Pi TV**? See [Jellyfin TV remote and D-pad navigation](docs/JELLYFIN_TV_REMOTE.md).
 
 > **Part of JellyPi** — a larger collection of independent Jellyfin projects built around a smoother living-room experience. JellyNav works on its own and also integrates with other JellyPi projects such as [JellyMark](https://github.com/isaacAmejia/jellymark).
 
