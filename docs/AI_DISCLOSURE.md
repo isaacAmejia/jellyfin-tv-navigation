@@ -1,6 +1,6 @@
 # AI Disclosure
 
-Jellyfin TV Navigation was developed with **OpenAI ChatGPT** generating and revising the source code and repository documentation.
+JellyNav was developed with **OpenAI ChatGPT** generating and revising the source code and repository documentation.
 
 The project owner defined the desired behavior, supplied diagnostics and environment details, tested builds on the actual Jellyfin client, reported regressions, and decided which implementations were accepted. Development therefore followed an iterative human-directed testing process rather than an unattended code-generation process.
 
