@@ -1,5 +1,34 @@
 # Changelog
 
+## Release — r12.18.1
+
+Internal version: `2026.09.30-r12.18.1`
+
+Major Legacy/TV navigation and performance release.
+
+- Promotes the optimized staging navigation architecture to `main`.
+- Short Back/Escape is now parent-aware:
+  - top-level Home / Movies / Shows / Requests tabs do nothing on short Back
+  - sub-areas return to their owning main tab or parent area
+  - downloaded Movies and Shows libraries are treated as Home subsections and return Home
+  - Details opened from a main section restore that section instead of relying on stale browser history
+- Main-tab focus now resolves from the actually active Jellyfin tab before falling back to remembered ancestry, preventing stale selection highlights after switching between tabs.
+- Long-press behavior remains unchanged:
+  - hold Enter / OK for 900 ms to refresh
+  - hold Back / Escape for 900 ms for Universal Home
+- Player behavior includes:
+  - hidden-OSD Enter pause/resume behavior
+  - player ActionSheet navigation for subtitles, audio, and settings
+  - Jellyfin Enhanced pause-screen recovery
+  - startup shielding so the previous page is not exposed while the player mounts
+- Details now prefer visible Play / Resume on entry and restore that selection after returning from playback.
+- Universal Home was hardened for late SPA mounts and same-route plugin states.
+- Native downloaded-library navigation, SeerrFin grids, Home, Details, player controls, dialogs, and headers received broad performance optimization.
+- Repeated layout work was reduced by caching element geometry during visual sorting.
+- Duplicate DOM scans and header/card rebuilds were removed where possible.
+- Native-library navigation models now rebuild only when their DOM changes instead of on every D-pad press.
+- The public build intentionally excludes unreleased companion-integration code. A separate companion integration is planned and will be documented when ready.
+
 ## Maintenance — r12.12.2
 
 Internal version: `2026.09.30-r12.12.2-seerr-grid-navigation`
