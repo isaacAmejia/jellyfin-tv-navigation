@@ -17,12 +17,14 @@ Jellyfin TV Navigation adds a TV-style focus system and D-pad navigation layer t
 
 ## Features
 
-- Remote/D-pad navigation across Home, Movies, TV, Search, Details, dialogs, and the player OSD
+- Remote/D-pad navigation across Home, Movies, Shows, Search, Details, dialogs, and the player OSD
 - Automatic focus when pages and supported popups open
 - Home startup focus on **Media Bar Play** when Media Bar is installed
 - TV-style grid navigation for native Movies/TV libraries
 - SeerrFin discovery, provider/network grids, request flows, Back, tabs, and Load More
 - Header, tabs, drawer, and on-screen search keyboard navigation
+- Top-level tab Back protection: short Back/Escape stays within the current main section
+- Parent-aware Back behavior from sub-areas and Details
 - Long-press **Enter / OK** to refresh
 - Long-press **Back / Escape** to return Home
 - Single visible focus ring with a subtle animation only for large jumps
@@ -62,6 +64,8 @@ These are **not required** for the core navigation layer.
 | [GlassFin](https://github.com/KBH-Reeper/GlassFin) | Tested theme; not required |
 | [Home Screen Sections](https://github.com/IAmParadox27/jellyfin-plugin-home-sections) | Tested alongside the navigation layer; not required |
 
+A separate companion integration for richer cross-instance media/request workflows is under development and will be documented when it is ready for public release.
+
 **Jellyfin Helper, File Transformation, and other UI plugins are not required by Jellyfin TV Navigation itself.**
 
 ## Quick Start
@@ -90,7 +94,7 @@ src/jellyfin-tv-navigation.js
 Build:
 
 ```text
-2026.09.30-r12.12.2-seerr-grid-navigation
+2026.09.30-r12.18.1
 ```
 
 The `main` branch is the known-good **Legacy / TV** release. Modern UI work stays on `develop/modern-ui` until it is ready to merge.
@@ -110,10 +114,10 @@ The script automatically detects the active Jellyfin surface and hands control t
 Jellyfin TV Navigation
 ├── Home + Media Bar
 ├── Header / tabs / drawer
-├── Movies + TV libraries
+├── Downloaded Movies + Shows libraries
 ├── Item details
 ├── Search + TV keyboard
-├── Player / OSD
+├── Player / OSD + audio/subtitle/settings sheets
 ├── Native dialogs
 ├── SeerrFin
 └── Optional supported plugin UI
