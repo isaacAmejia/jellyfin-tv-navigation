@@ -1,5 +1,21 @@
 # Changelog
 
+## Release — r12.19
+
+Internal version: `2026.09.30-r12.19-jellymark-compatibility`
+
+First release under the **JellyNav** name.
+
+- Restores the fully tested JellyMark compatibility layer from staging while keeping JellyMark completely independent.
+- JellyNav automatically recognizes JellyMark's Watchlist UI when both projects are installed; neither project is required by the other.
+- Adds deterministic remote navigation across JellyMark's main Watchlist tab, sub-tabs, filters, Watch History, Statistics, dialogs, and Series Progress.
+- Series Progress uses one logical selection per series row: the whole row is outlined, the Mark Watched / Mark Unplayed action is outlined at the same time, and Enter activates that action.
+- Preserves the active-main-tab Back fix so returning from sub-areas highlights the section actually on screen instead of a stale previous tab.
+- Keeps short Back/Escape inert on top-level tabs while sub-areas return to their parent section.
+- Preserves 900 ms hold Enter/OK refresh and 900 ms hold Back/Escape Universal Home.
+- Includes the r12.18 performance work: cached visual geometry, reduced duplicate DOM scans, and dirty-state caching for Watchlist/native-library navigation models.
+- Rebrands user-facing documentation and console logging as JellyNav.
+- Documents JellyNav as one independent component of the larger **JellyPi** project alongside JellyMark.
 ## Release — r12.18.1
 
 Internal version: `2026.09.30-r12.18.1`
