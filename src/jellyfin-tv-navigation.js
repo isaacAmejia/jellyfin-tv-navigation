@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '2026.09.30-r12.12.2-seerr-grid-navigation';
+  const VERSION = '2026.09.30-r12.18.1';
   const LONG_PRESS_REFRESH_MS = 900;
   const LONG_PRESS_HOME_MS = 900;
 
@@ -33,6 +33,8 @@
 
   let focusRing = null;
   let injectedStyle = null;
+  let playerLaunchShield = null;
+  let playerLaunchShieldTimer = null;
 
   let globalObserver = null;
   let mediaObserver = null;
@@ -56,6 +58,12 @@
   let extIndex = 0;
 
   let selectMode = null;
+  let detailFocusRoot = null;
+  let detailPrimaryPending = true;
+  let detailObserver = null;
+  let detailObserverRoot = null;
+  let pauseScreenObserver = null;
+  let pauseScreenObserverRoot = null;
 
   let playerLane = 'bottom';
   let playerBottomIndex = 0;
@@ -80,12 +88,18 @@
 
   let homeRowSettleToken = 0;
   let homeMediaSettleToken = 0;
+  let universalHomeToken = 0;
+  let universalHomeTimer = null;
+  let backFocusRestoreToken = 0;
+
+  let parentMainTabKey = 'home';
 
   // Native Jellyfin library / drawer state
   let drawerStyle = null;
   let drawerIndex = 0;
 
   let nativeLibraryRoot = null;
+  let nativeLibraryDirty = true;
   let nativeLibraryRows = [];
   let nativeLibraryRow = 0;
   let nativeLibraryCol = 0;
@@ -179,33 +193,184 @@
     }
   }
 
-  function visualSort(a, b) {
-    const ar = a.getBoundingClientRect();
-    const br = b.getBoundingClientRect();
-
-    const tolerance = Math.max(
-      24,
-      Math.min(
-        ar.height,
-        br.height
-      ) * 0.45
+  function removePlayerLaunchShield() {
+    clearTimeout(
+      playerLaunchShieldTimer
     );
 
+    playerLaunchShieldTimer =
+      null;
+
+    playerLaunchShield
+      ?.remove();
+
+    playerLaunchShield =
+      null;
+  }
+
+  function showPlayerLaunchShield() {
+    hideFocus();
+
     if (
-      Math.abs(
-        ar.top -
-        br.top
-      ) <= tolerance
+      !playerLaunchShield ||
+      !playerLaunchShield.isConnected
     ) {
-      return (
-        ar.left -
-        br.left
+      playerLaunchShield =
+        document.createElement(
+          'div'
+        );
+
+      playerLaunchShield.id =
+        '__jf_tv_player_launch_shield__';
+
+      Object.assign(
+        playerLaunchShield.style,
+        {
+          position:
+            'fixed',
+          inset:
+            '0',
+          background:
+            '#000',
+          zIndex:
+            '999',
+          pointerEvents:
+            'none'
+        }
+      );
+
+      document.body.appendChild(
+        playerLaunchShield
       );
     }
 
-    return (
-      ar.top -
-      br.top
+    clearTimeout(
+      playerLaunchShieldTimer
+    );
+
+    const settle =
+      attempt => {
+        const playerContainer =
+          document.querySelector(
+            '.videoPlayerContainer.videoPlayerContainer-onTop'
+          );
+
+        /*
+         * Jellyfin's fullscreen HTML player uses z-index 1000. The launch
+         * shield sits at 999, so once that player layer is established it
+         * safely covers the old page and the temporary shield can disappear.
+         */
+        if (
+          playerContainer &&
+          playerContainer.isConnected
+        ) {
+          removePlayerLaunchShield();
+
+          return;
+        }
+
+        if (
+          attempt < 80 &&
+          (
+            /#\/video(?:$|\?)/.test(
+              location.hash
+            ) ||
+            document.querySelector(
+              '#videoOsdPage,.videoPlayerContainer'
+            )
+          )
+        ) {
+          playerLaunchShieldTimer =
+            setTimeout(
+              () =>
+                settle(
+                  attempt + 1
+                ),
+              100
+            );
+
+          return;
+        }
+
+        /*
+         * If playback never mounts or the user backs out during startup,
+         * never leave a black layer stranded over Jellyfin.
+         */
+        removePlayerLaunchShield();
+      };
+
+    playerLaunchShieldTimer =
+      setTimeout(
+        () =>
+          settle(0),
+        50
+      );
+  }
+
+  function sortVisual(
+    elements
+  ) {
+    const list =
+      [...(
+        elements ||
+        []
+      )];
+
+    if (
+      list.length <
+      2
+    ) {
+      return list;
+    }
+
+    const metrics =
+      new Map();
+
+    for (const el of list) {
+      metrics.set(
+        el,
+        el.getBoundingClientRect()
+      );
+    }
+
+    return list.sort(
+      (
+        a,
+        b
+      ) => {
+        const ar =
+          metrics.get(a);
+
+        const br =
+          metrics.get(b);
+
+        const tolerance =
+          Math.max(
+            24,
+            Math.min(
+              ar.height,
+              br.height
+            ) * 0.45
+          );
+
+        if (
+          Math.abs(
+            ar.top -
+            br.top
+          ) <=
+          tolerance
+        ) {
+          return (
+            ar.left -
+            br.left
+          );
+        }
+
+        return (
+          ar.top -
+          br.top
+        );
+      }
     );
   }
 
@@ -322,74 +487,157 @@
     );
   }
 
+  function visibleHomeTabButton() {
+    // SeerrFin can reorder tabs. The Home panel identifies its real index.
+    const panel = document.querySelector('#homeTab');
+    const index = panel?.getAttribute('data-index');
+    const tabs = [
+      ...document.querySelectorAll(
+        '.emby-tab-button'
+      )
+    ].filter(
+      el => {
+        if (
+          !visible(el) ||
+          el.hasAttribute(
+            'data-seerrfin-tab'
+          )
+        ) {
+          return false;
+        }
+
+        const rect =
+          el.getBoundingClientRect();
+
+        return (
+          rect.top >=
+            -5 &&
+          rect.top <
+            135
+        );
+      }
+    );
+    return tabs.find(el => index != null && el.getAttribute('data-index') === index) ||
+      tabs.find(el => /^home$/i.test((el.textContent || el.getAttribute('aria-label') || '').trim())) ||
+      tabs.find(el => index == null && el.getAttribute('data-index') === '0') || null;
+  }
+
+  function settleUniversalHome() {
+    const token = ++universalHomeToken;
+    clearTimeout(universalHomeTimer);
+    clearTimeout(rebuildTimer);
+    clearTimeout(contextRefreshTimer);
+    clearTimeout(postHeaderTimer);
+    clearTimeout(playerWakeTimer);
+    homeMediaSettleToken++;
+    homeRowSettleToken++;
+    if (keyboardRoot) closeKeyboard();
+    resetTransientNavigationState('route-reset');
+    clearNativeLibraryState();
+
+    let navigated = false;
+    const closing = new WeakSet();
+    const retry = attempt => {
+      if (token !== universalHomeToken) return;
+      universalHomeTimer = null;
+      const later = () => {
+        if (attempt < 50) {
+          universalHomeTimer = setTimeout(() => retry(attempt + 1), 120);
+        }
+      };
+      // Close one layer at a time through its owner, before changing routes.
+      const overlay = playerActionSheet() || nativeDialog() || requestFormRoot() ||
+        seerrInfoModal() || enhancedInfoModal();
+      if (overlay) {
+        if (!closing.has(overlay)) {
+          closing.add(overlay);
+          if (!closeModal(overlay) && !closePlayerActionSheet(overlay)) {
+            const command = new CustomEvent('command', {
+              detail: { command: 'back' }, bubbles: true, cancelable: true
+            });
+            if (overlay.dispatchEvent(command) && overlay.getAttribute('data-history') === 'true') {
+              window.history.back();
+            }
+          }
+        }
+        later();
+        return;
+      }
+      const pauseScreen = enhancedPauseScreen();
+      if (pauseScreen) dismissEnhancedPauseScreen(pauseScreen);
+      if (drawerOpen()) {
+        const drawer = mainDrawer();
+        if (drawer && !closing.has(drawer)) {
+          closing.add(drawer);
+          closeDrawer();
+        }
+        later();
+        return;
+      }
+      const player = playerPage();
+      if (!navigated && player) {
+        if (!closing.has(player)) {
+          closing.add(player);
+          exitPlayer(false);
+        }
+        later();
+        return;
+      }
+      if (!navigated) {
+        navigated = true;
+        // Drop plugin deep links even when already on a Home route.
+        if (location.hash !== '#/home') location.hash = '#/home';
+      } else if (location.hash !== '#/home') {
+        // A deliberate route change after Home began cancels late focus work.
+        universalHomeToken++;
+        return;
+      }
+
+      const homePanel = document.querySelector('#homeTab');
+      const homePage = homePanel?.closest('.page') || document.querySelector('#indexPage');
+      if (!homePage || !visible(homePage)) {
+        later();
+        return;
+      }
+      const tab = visibleHomeTabButton();
+      if (tab && (seerrPageRoot() || seerrGridRoot() ||
+        !tab.classList.contains('emby-tab-button-active'))) {
+        const gridBack = seerrGridRoot()?.querySelector('[data-grid-nav="back"]');
+        if (gridBack && visible(gridBack) && !closing.has(gridBack)) {
+          closing.add(gridBack);
+          click(gridBack);
+        }
+        if (!closing.has(tab)) {
+          closing.add(tab);
+          click(tab);
+        }
+      }
+      if ((homePanel && !visible(homePanel)) || detailRoot() || searchPageRoot() ||
+        nativeLibraryPageRoot() || seerrPageRoot() || seerrGridRoot()) {
+        later();
+        return;
+      }
+      rebuildHeaderTargets();
+      rebuildRows();
+      if (!getMediaControls().length && !rows.length && !headerTargets.length) {
+        later();
+        return;
+      }
+      // Readiness is based on the mounted Home DOM, rather than which stale
+      // context happened to claim the route during its transition.
+      resetTransientNavigationState('route-reset');
+      clearNativeLibraryState();
+      disconnectPlayerObserver();
+      beginHomePreferredFocus();
+      maintainScopedObservers();
+    };
+    retry(0);
+  }
+
   function goUniversalHome() {
     hideFocus();
-
-    /*
-     * SeerrFin provider/network grids are same-page views: opening one
-     * does not create a new Jellyfin route. Close the active grid through
-     * SeerrFin's own Back control before running the normal Home action,
-     * otherwise Jellyfin can already consider itself "Home" and leave
-     * the grid mounted.
-     */
-    const seerrGrid =
-      seerrGridRoot();
-
-    const seerrGridBack =
-      seerrGrid?.querySelector(
-        '[data-grid-nav="back"]'
-      );
-
-    if (
-      seerrGridBack &&
-      visible(
-        seerrGridBack
-      )
-    ) {
-      click(
-        seerrGridBack
-      );
-
-      resetTransientNavigationState(
-        'route-reset'
-      );
-
-      setTimeout(
-        goUniversalHome,
-        80
-      );
-
-      return;
-    }
-
-    const home =
-      [
-        ...document.querySelectorAll(
-          '.headerHomeButton'
-        )
-      ].find(
-        el =>
-          el.isConnected
-      );
-
-    if (home) {
-      click(home);
-
-      return;
-    }
-
-    if (
-      location.hash.startsWith(
-        '#/home'
-      )
-    ) {
-      restoreHomeAfterRoute();
-
-      return;
-    }
-
-    location.hash =
-      '#/home';
+    removePlayerLaunchShield();
+    settleUniversalHome();
   }
 
   function startBackHold(event) {
@@ -606,6 +854,7 @@
         flex: 1 1 auto;
         max-width: 470px;
       }
+
     `;
 
     document.head.appendChild(
@@ -719,6 +968,7 @@
 
   function hideFocus() {
     focusRevealToken += 1;
+
 
     if (focusArrivalAnimation) {
       try {
@@ -1550,7 +1800,168 @@
     );
   }
 
+  function mainTabKey(
+    target
+  ) {
+    if (!target) {
+      return null;
+    }
+
+
+    const label =
+      (
+        target.textContent ||
+        target.getAttribute?.(
+          'aria-label'
+        ) ||
+        ''
+      )
+        .replace(
+          /\s+/g,
+          ' '
+        )
+        .trim()
+        .toLowerCase();
+
+    return [
+      'home',
+      'movies',
+      'shows',
+      'requests'
+    ].includes(
+      label
+    )
+      ? label
+      : null;
+  }
+
+  function activeMainTabKey() {
+    rebuildHeaderTargets();
+
+    const active =
+      headerTargets.find(
+        target =>
+          mainTabKey(
+            target
+          ) &&
+          (
+            target.classList.contains(
+              'emby-tab-button-active'
+            ) ||
+            target.getAttribute(
+              'aria-selected'
+            ) ===
+              'true'
+          )
+      );
+
+    return (
+      mainTabKey(
+        active
+      ) ||
+      null
+    );
+  }
+
+  function currentMainTabKey() {
+    return (
+      activeMainTabKey() ||
+      parentMainTabKey
+    );
+  }
+
+  function rememberParentMainTab(
+    target
+  ) {
+    const key =
+      mainTabKey(
+        target
+      );
+
+    if (key) {
+      parentMainTabKey =
+        key;
+    }
+
+    return key;
+  }
+
+  function mainTabTarget(
+    key =
+      parentMainTabKey
+  ) {
+    rebuildHeaderTargets();
+
+    return (
+      headerTargets.find(
+        target =>
+          mainTabKey(
+            target
+          ) === key
+      ) ||
+      null
+    );
+  }
+
+  function focusMainTab(
+    key =
+      parentMainTabKey,
+    activate =
+      false
+  ) {
+    const target =
+      mainTabTarget(
+        key
+      );
+
+    if (!target) {
+      return false;
+    }
+
+    const resolvedKey =
+      mainTabKey(
+        target
+      );
+
+    if (resolvedKey) {
+      parentMainTabKey =
+        resolvedKey;
+    }
+
+    const index =
+      headerTargets.indexOf(
+        target
+      );
+
+    if (index >= 0) {
+      headerIndex =
+        index;
+    }
+
+    zone =
+      'header';
+
+    if (activate) {
+      click(
+        target
+      );
+
+      settleAfterHeaderActivation(
+        target
+      );
+    }
+
+    showFocusElement(
+      target
+    );
+
+    return true;
+  }
+
   function rebuildHeaderTargets() {
+    const metrics =
+      new Map();
+
     const candidates = [
       ...document.querySelectorAll(
         '.mainDrawerButton,' +
@@ -1578,29 +1989,32 @@
         const rect =
           el.getBoundingClientRect();
 
-        return (
-          rect.top >=
-          -5 &&
+        if (
           rect.top <
-          135
+            -5 ||
+          rect.top >=
+            135
+        ) {
+          return false;
+        }
+
+        metrics.set(
+          el,
+          rect
         );
+
+        return true;
       }
     );
 
     headerTargets =
-      uniqueVisible(
-        candidates
-      ).sort(
+      candidates.sort(
         (
           a,
           b
         ) =>
-          a
-            .getBoundingClientRect()
-            .left -
-          b
-            .getBoundingClientRect()
-            .left
+          metrics.get(a).left -
+          metrics.get(b).left
       );
 
     if (
@@ -1623,8 +2037,12 @@
       );
   }
 
-  function findActiveHeaderIndex() {
-    rebuildHeaderTargets();
+  function findActiveHeaderIndex(
+    rebuild = true
+  ) {
+    if (rebuild) {
+      rebuildHeaderTargets();
+    }
 
     const activeIndex =
       headerTargets.findIndex(
@@ -1662,7 +2080,9 @@
       preferActive
     ) {
       headerIndex =
-        findActiveHeaderIndex();
+        findActiveHeaderIndex(
+          false
+        );
     }
 
     zone =
@@ -1745,6 +2165,10 @@
     mediaControlIndex =
       0;
 
+    homeMediaSettleToken++;
+    homeRowSettleToken++;
+    detailFocusRoot = null;
+    detailPrimaryPending = true;
     hideFocus();
   }
 
@@ -1789,6 +2213,10 @@
                 headerIndex
               ];
 
+            rememberParentMainTab(
+              active
+            );
+
             if (active) {
               showFocusElement(
                 active
@@ -1832,6 +2260,10 @@
       return;
     }
 
+    rememberParentMainTab(
+      target
+    );
+
     click(
       target
     );
@@ -1874,6 +2306,15 @@
       seerrPageRoot();
 
     if (seerr) {
+      const activeKey =
+        activeMainTabKey();
+
+      if (
+        activeKey
+      ) {
+        parentMainTabKey =
+          activeKey;
+      }
       /* Always enter the newly activated SeerrFin tab at row 0/card 0. */
       rowIndex = 0;
       cardIndex = 0;
@@ -2658,6 +3099,8 @@
       mediaControlIndex
     ) {
       case 0:
+        showPlayerLaunchShield();
+
         media.play
           ?.click();
         break;
@@ -2856,11 +3299,13 @@
     context,
     root,
     targets,
-    preferred = null
+    preferred = null,
+    forcePreferred = false
   ) {
     const previous =
+      !forcePreferred &&
       extContext ===
-      context
+      context && extRoot === root
         ?
           extTargets[
             extIndex
@@ -3049,12 +3494,12 @@
   ) {
     return root
       ?
-        uniqueVisible([
-          ...root.querySelectorAll(
-            'button:not([disabled])'
-          )
-        ]).sort(
-          visualSort
+        sortVisual(
+          uniqueVisible([
+            ...root.querySelectorAll(
+              'button:not([disabled])'
+            )
+          ])
         )
       :
         [];
@@ -3116,22 +3561,29 @@
   ) {
     return root
       ?
-        uniqueVisible([
-          ...root.querySelectorAll(
-            '.itemsContainer > .card,' +
-            '[data-seerrfin-native-card="true"]'
-          )
-        ]).sort(
-          visualSort
+        sortVisual(
+          uniqueVisible([
+            ...root.querySelectorAll(
+              '.itemsContainer > .card,' +
+              '[data-seerrfin-native-card="true"]'
+            )
+          ])
         )
       :
         [];
   }
 
   function seerrGridTargets(
-    root
+    root,
+    cards = null
   ) {
     rebuildHeaderTargets();
+
+    cards =
+      cards ||
+      seerrGridCards(
+        root
+      );
 
     const back =
       root?.querySelector(
@@ -3146,9 +3598,7 @@
     return uniqueVisible([
       ...headerTargets,
       back,
-      ...seerrGridCards(
-        root
-      ),
+      ...cards,
       loadMore
     ]);
   }
@@ -3167,7 +3617,8 @@
 
     const targets =
       seerrGridTargets(
-        root
+        root,
+        cards
       );
 
     if (!targets.length) {
@@ -3733,10 +4184,10 @@
         }
       );
 
-    return uniqueVisible(
-      result
-    ).sort(
-      visualSort
+    return sortVisual(
+      uniqueVisible(
+        result
+      )
     );
   }
 
@@ -4217,17 +4668,17 @@
   function detailActions(
     root
   ) {
-    return uniqueVisible([
-      ...root.querySelectorAll(
-        '.mainDetailButtons button,' +
-        '.mainDetailButtons a'
-      ),
+    return sortVisual(
+      uniqueVisible([
+        ...root.querySelectorAll(
+          '.mainDetailButtons button,' +
+          '.mainDetailButtons a'
+        ),
 
-      ...root.querySelectorAll(
-        '.je-series-request-more-btn'
-      )
-    ]).sort(
-      visualSort
+        ...root.querySelectorAll(
+          '.je-series-request-more-btn'
+        )
+      ])
     );
   }
 
@@ -4256,12 +4707,12 @@
   function detailSimilarCards(
     root
   ) {
-    return uniqueVisible([
-      ...root.querySelectorAll(
-        '#similarCollapsible .card[data-type]'
-      )
-    ]).sort(
-      visualSort
+    return sortVisual(
+      uniqueVisible([
+        ...root.querySelectorAll(
+          '#similarCollapsible .card[data-type]'
+        )
+      ])
     );
   }
 
@@ -4362,11 +4813,25 @@
     );
   }
 
-  function enterDetail(
-    root
-  ) {
-    rebuildHeaderTargets();
+  function detailPrimaryAction(root) {
+    // DOM order does not guarantee that Resume precedes Play.
+    for (const selector of [
+      '.mainDetailButtons [data-action="resume"],.mainDetailButtons .btnResume',
+      '.mainDetailButtons .btnPlay,.mainDetailButtons [data-action="play"]'
+    ]) {
+      const action = [...root.querySelectorAll(selector)].find(el =>
+        visible(el) && !el.matches('[disabled],[aria-disabled="true"]')
+      );
+      if (action) return action;
+    }
+    return null;
+  }
 
+
+  function enterDetail(
+    root,
+    forcePreferred = true
+  ) {
     zone =
       'detail';
 
@@ -4375,22 +4840,12 @@
         root
       );
 
-    const primary =
-      root.querySelector(
-        '.mainDetailButtons .btnPlay:not(.hide),' +
-        '.mainDetailButtons button[data-action="resume"]:not(.hide),' +
-        '.mainDetailButtons button[data-action="play"]:not(.hide)'
-      ) ||
-      detailActions(
-        root
-      )[0] ||
-      targets[0];
+    const primary = detailPrimaryAction(root);
 
     return setExt(
-      'detail',
-      root,
-      targets,
-      primary
+      'detail', root, targets,
+      primary || detailActions(root)[0] || targets[0],
+      forcePreferred
     );
   }
 
@@ -4408,9 +4863,9 @@
         'input[placeholder*="Search" i],' +
         'input[aria-label*="Search" i]'
       )
-    ].filter(
+    ].find(
       visible
-    )[0] ||
+    ) ||
     null;
   }
 
@@ -5472,47 +5927,83 @@
   // ============================================================
 
   function playerPage() {
-    const page =
-      document.querySelector(
-        '#videoOsdPage'
-      );
-
-    if (
-      page &&
-      (
-        page.isConnected ||
-        /#\/video(?:$|\?)/
-          .test(
-            location.hash
-          )
-      )
-    ) {
-      return page;
+    const onVideoRoute = /#\/video(?:$|\?)/.test(location.hash);
+    if (location.hash.startsWith('#/home')) return null;
+    const page = document.querySelector('#videoOsdPage');
+    if (page?.isConnected && (onVideoRoute ||
+      (visible(page) && activeVisiblePage() === page))) return page;
+    const video = document.querySelector('video.htmlvideoplayer,video');
+    if (video?.isConnected && onVideoRoute) {
+      return page || video.closest('.page') || document.body;
     }
-
-    const video =
-      document.querySelector(
-        'video.htmlvideoplayer,' +
-        'video'
-      );
-
-    if (
-      video &&
-      /#\/video/
-        .test(
-          location.hash
-        )
-    ) {
-      return (
-        page ||
-        video.closest(
-          '.page'
-        ) ||
-        document.body
-      );
-    }
-
     return null;
+  }
+
+  function enhancedPauseScreen() {
+    const overlay = document.querySelector('#pause-screen-overlay');
+    return overlay?.getAttribute('aria-hidden') === 'false' && visible(overlay)
+      ? overlay : null;
+  }
+
+  function activePlayerVideo(page) {
+    return uniqueVisible([
+      ...document.querySelectorAll('.videoPlayerContainer video,video.htmlvideoplayer'),
+      ...page.querySelectorAll('video')
+    ])[0] || null;
+  }
+
+  function dismissEnhancedPauseScreen(root, dismissed = true) {
+    const instance = window.JellyfinEnhanced?.pauseScreenInstance;
+    if (instance?.overlay === root && typeof instance.hideOverlay === 'function') {
+      instance.hideOverlay(dismissed);
+      return true;
+    }
+    return click(root?.querySelector('#pause-screen-close-btn'));
+  }
+
+  function togglePlayerPlayback(page, resumeOnly = false) {
+    const video = activePlayerVideo(page);
+    if (!video || video.ended) return false;
+    hideFocus();
+    if (!video.paused && !resumeOnly) {
+      video.pause();
+      scheduleContextRefresh(80);
+    } else if (video.paused) {
+      // Use the same media API as Enhanced's own Enter handler. Jellyfin
+      // still receives pause/play events and reports playback state normally.
+      try {
+        Promise.resolve(video.play()).then(() => {
+          const overlay = enhancedPauseScreen();
+          if (overlay) dismissEnhancedPauseScreen(overlay, false);
+          scheduleContextRefresh(80);
+        }).catch(error => console.warn('[JF TV] Resume failed:', error));
+      } catch (error) {
+        console.warn('[JF TV] Resume failed:', error);
+      }
+    } else {
+      // A play event may already have resumed the video before key release.
+      const overlay = enhancedPauseScreen();
+      if (overlay) dismissEnhancedPauseScreen(overlay, false);
+      scheduleContextRefresh(80);
+    }
+    return true;
+  }
+
+  function handleEnhancedPauseScreen(event, root) {
+    if (!['Enter', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+      'Escape', 'BrowserBack', 'GoBack'].includes(event.key)) return false;
+    consume(event);
+    const page = playerPage();
+    if (event.key === 'Enter' || event.key === ' ') {
+      if (page) togglePlayerPlayback(page, true);
+    } else {
+      // Dismiss through Enhanced so its timer and focus trap are released.
+      // The video remains paused; Back dismisses this screen before exit.
+      dismissEnhancedPauseScreen(root);
+      keepPlayerOsdAlive();
+      scheduleContextRefresh(80);
+    }
+    return true;
   }
 
   function playerBottomElement(
@@ -5621,46 +6112,60 @@
   function playerBottomControls(
     page
   ) {
-    return uniqueVisible([
-      ...(
-        page ||
-        document
-      ).querySelectorAll(
-        '.videoOsdBottom button:not([disabled]),' +
-        '.osdControls button:not([disabled])'
-      )
-    ]).sort(
-      (
-        a,
-        b
-      ) =>
-        a
-          .getBoundingClientRect()
-          .left -
-        b
-          .getBoundingClientRect()
-          .left
+    const controls =
+      uniqueVisible([
+        ...(
+          page ||
+          document
+        ).querySelectorAll(
+          '.videoOsdBottom button:not([disabled]),' +
+          '.osdControls button:not([disabled])'
+        )
+      ]);
+
+    const left =
+      new Map(
+        controls.map(
+          control => [
+            control,
+            control.getBoundingClientRect()
+              .left
+          ]
+        )
+      );
+
+    return controls.sort(
+      (a, b) =>
+        left.get(a) -
+        left.get(b)
     );
   }
 
   function playerTopControls(
     page
   ) {
-    return uniqueVisible([
-      ...page.querySelectorAll(
-        '.osdHeader button:not([disabled])'
-      )
-    ]).sort(
-      (
-        a,
-        b
-      ) =>
-        a
-          .getBoundingClientRect()
-          .left -
-        b
-          .getBoundingClientRect()
-          .left
+    const controls =
+      uniqueVisible([
+        ...page.querySelectorAll(
+          '.osdHeader button:not([disabled])'
+        )
+      ]);
+
+    const left =
+      new Map(
+        controls.map(
+          control => [
+            control,
+            control.getBoundingClientRect()
+              .left
+          ]
+        )
+      );
+
+    return controls.sort(
+      (a, b) =>
+        left.get(a) -
+        left.get(b)
     );
   }
 
@@ -5875,6 +6380,14 @@
   function enterPlayer(
     page
   ) {
+    /*
+     * The outgoing Details/Home DOM can remain visible underneath Jellyfin's
+     * player while the video is still loading. Hide our previous navigation
+     * ring immediately on player entry; only the player's own OSD may reveal
+     * focus again once its controls are actually visible.
+     */
+    hideFocus();
+
     zone =
       'player';
 
@@ -5988,7 +6501,200 @@
     return true;
   }
 
-  function exitPlayer() {
+  function restoreFocusAfterBackNavigation(
+    departingRoot
+  ) {
+    const token =
+      ++backFocusRestoreToken;
+
+    const settle =
+      attempt => {
+        if (
+          token !==
+          backFocusRestoreToken
+        ) {
+          return;
+        }
+
+        if (
+          departingRoot &&
+          departingRoot.isConnected &&
+          visible(
+            departingRoot
+          )
+        ) {
+          if (attempt < 20) {
+            setTimeout(
+              () =>
+                settle(
+                  attempt + 1
+                ),
+              100
+            );
+          }
+
+          return;
+        }
+
+        const details =
+          detailRoot();
+
+        if (details) {
+          resetTransientNavigationState(
+            'route-reset'
+          );
+
+          detailFocusRoot =
+            details;
+
+          detailPrimaryPending =
+            true;
+
+          enterDetail(
+            details,
+            true
+          );
+
+          detailPrimaryPending =
+            false;
+
+          maintainScopedObservers();
+
+          return;
+        }
+
+        if (
+          (
+            !location.hash ||
+            location.hash.startsWith(
+              '#/home'
+            )
+          ) &&
+          !playerPage() &&
+          !searchPageRoot() &&
+          !nativeLibraryPageRoot() &&
+          !drawerOpen()
+        ) {
+          resetTransientNavigationState(
+            'route-reset'
+          );
+
+          beginHomePreferredFocus();
+          maintainScopedObservers();
+
+          return;
+        }
+
+        const context =
+          resolveContext();
+
+        if (
+          context.type !==
+            'player' &&
+          context.root !==
+            departingRoot
+        ) {
+          maintainScopedObservers();
+
+          return;
+        }
+
+        if (attempt < 20) {
+          setTimeout(
+            () =>
+              settle(
+                attempt + 1
+              ),
+            100
+          );
+        }
+      };
+
+    setTimeout(
+      () =>
+        settle(0),
+      60
+    );
+  }
+
+  function restoreParentMainTabAfterBackNavigation(
+    departingRoot
+  ) {
+    const token =
+      ++backFocusRestoreToken;
+
+    const settle =
+      attempt => {
+        if (
+          token !==
+          backFocusRestoreToken
+        ) {
+          return;
+        }
+
+        if (
+          departingRoot &&
+          departingRoot.isConnected &&
+          visible(
+            departingRoot
+          )
+        ) {
+          if (
+            attempt <
+            20
+          ) {
+            setTimeout(
+              () =>
+                settle(
+                  attempt + 1
+                ),
+              100
+            );
+          }
+
+          return;
+        }
+
+        if (
+          focusMainTab(
+            parentMainTabKey,
+            true
+          )
+        ) {
+          maintainScopedObservers();
+
+          return;
+        }
+
+        if (
+          attempt <
+          20
+        ) {
+          setTimeout(
+            () =>
+              settle(
+                attempt + 1
+              ),
+            100
+          );
+        }
+      };
+
+    setTimeout(
+      () =>
+        settle(0),
+      60
+    );
+  }
+
+  function exitPlayer(
+    restoreFocus = true
+  ) {
+    const departingRoot =
+      playerPage();
+
+    removePlayerLaunchShield();
+
     clearTimeout(
       playerWakeTimer
     );
@@ -6013,10 +6719,22 @@
         back
       );
 
+      if (restoreFocus) {
+        restoreFocusAfterBackNavigation(
+          departingRoot
+        );
+      }
+
       return true;
     }
 
     window.history.back();
+
+    if (restoreFocus) {
+      restoreFocusAfterBackNavigation(
+        departingRoot
+      );
+    }
 
     return true;
   }
@@ -6063,19 +6781,19 @@
       return [];
     }
 
-    return uniqueVisible([
-      ...root.querySelectorAll(
-        '.libraryMenuOptions .navMenuOption,' +
-        '.adminMenuOptions .navMenuOption[data-itemid="dashboard"],' +
-        '.adminMenuOptions .lnkManageServer[href="#/dashboard"]'
-      )
-    ]).filter(
-      el =>
-        !el.matches(
-          '[disabled],[aria-disabled="true"]'
+    return sortVisual(
+      uniqueVisible([
+        ...root.querySelectorAll(
+          '.libraryMenuOptions .navMenuOption,' +
+          '.adminMenuOptions .navMenuOption[data-itemid="dashboard"],' +
+          '.adminMenuOptions .lnkManageServer[href="#/dashboard"]'
         )
-    ).sort(
-      visualSort
+      ]).filter(
+        el =>
+          !el.matches(
+            '[disabled],[aria-disabled="true"]'
+          )
+      )
     );
   }
 
@@ -6269,17 +6987,31 @@
   // ============================================================
 
   function activeVisiblePage() {
-    const pages = [
-      ...document.querySelectorAll(
+    const pages =
+      document.querySelectorAll(
         '.page'
-      )
-    ].filter(
-      visible
-    );
+      );
 
-    return pages[
-      pages.length - 1
-    ] || null;
+    for (
+      let index =
+        pages.length - 1;
+      index >= 0;
+      index--
+    ) {
+      if (
+        visible(
+          pages[
+            index
+          ]
+        )
+      ) {
+        return pages[
+          index
+        ];
+      }
+    }
+
+    return null;
   }
 
   function nativeLibraryPageRoot() {
@@ -6519,9 +7251,9 @@
       bySection.values()
     ) {
       const sorted =
-        group.cards
-          .slice()
-          .sort(visualSort);
+        sortVisual(
+          group.cards
+        );
 
       const visualRows = [];
 
@@ -6640,34 +7372,39 @@
         ?.getBoundingClientRect()
         .top ?? Infinity;
 
-    return uniqueVisible([
-      ...content.querySelectorAll(
-        '.btnPreviousPage,' +
-        '.btnNextPage,' +
-        '.btnPlayAll,' +
-        '.btnShuffle,' +
-        '.btnSelectView,' +
-        '.btnSort,' +
-        '.btnFilter,' +
-        '.listPaging button,' +
-        '.paging button,' +
-        'select:not([disabled])'
-      )
-    ]).filter(
-      el =>
-        !el.disabled &&
-        el.getAttribute(
-          'aria-disabled'
-        ) !== 'true' &&
-        !el.classList.contains(
-          'alphaPickerButton'
-        ) &&
-        !el.closest('.card') &&
-        el.getBoundingClientRect()
-          .top <
+    const controls =
+      uniqueVisible([
+        ...content.querySelectorAll(
+          '.btnPreviousPage,' +
+          '.btnNextPage,' +
+          '.btnPlayAll,' +
+          '.btnShuffle,' +
+          '.btnSelectView,' +
+          '.btnSort,' +
+          '.btnFilter,' +
+          '.listPaging button,' +
+          '.paging button,' +
+          'select:not([disabled])'
+        )
+      ]).filter(
+        el =>
+          !el.disabled &&
+          el.getAttribute(
+            'aria-disabled'
+          ) !== 'true' &&
+          !el.classList.contains(
+            'alphaPickerButton'
+          ) &&
+          !el.closest(
+            '.card'
+          ) &&
+          el.getBoundingClientRect()
+            .top <
           firstCardTop
-    ).sort(
-      visualSort
+      );
+
+    return sortVisual(
+      controls
     );
   }
 
@@ -6683,27 +7420,40 @@
       return [];
     }
 
-    return uniqueVisible([
-      ...content.querySelectorAll(
-        '.alphaPickerButton'
-      )
-    ]).filter(
-      el =>
-        !el.disabled &&
-        el.getAttribute(
-          'aria-disabled'
-        ) !== 'true'
-    ).sort(
+    const targets =
+      uniqueVisible([
+        ...content.querySelectorAll(
+          '.alphaPickerButton'
+        )
+      ]).filter(
+        el =>
+          !el.disabled &&
+          el.getAttribute(
+            'aria-disabled'
+          ) !== 'true'
+      );
+
+    const top =
+      new Map(
+        targets.map(
+          target => [
+            target,
+            target.getBoundingClientRect()
+              .top
+          ]
+        )
+      );
+
+    return targets.sort(
       (a, b) =>
-        a.getBoundingClientRect()
-          .top -
-        b.getBoundingClientRect()
-          .top
+        top.get(a) -
+        top.get(b)
     );
   }
 
   function clearNativeLibraryState() {
     nativeLibraryRoot = null;
+    nativeLibraryDirty = true;
     nativeLibraryRows = [];
     nativeLibraryRow = 0;
     nativeLibraryCol = 0;
@@ -6785,6 +7535,9 @@
           )
         )
       );
+
+    nativeLibraryDirty =
+      false;
   }
 
   function scrollNativeTarget(
@@ -7123,6 +7876,23 @@
     event,
     root
   ) {
+    if (
+      isBackKey(
+        event.key
+      )
+    ) {
+      consume(
+        event
+      );
+
+      parentMainTabKey =
+        'home';
+
+      goUniversalHome();
+
+      return true;
+    }
+
     if (zone === 'header') {
       return handleHeader(event);
     }
@@ -7146,27 +7916,17 @@
     }
 
     consume(event);
-    refreshNativeLibraryState(root);
 
     if (
-      event.key === 'Escape' ||
-      event.key === 'BrowserBack' ||
-      event.key === 'GoBack'
+      nativeLibraryDirty ||
+      nativeLibraryRoot !==
+        root ||
+      !nativeLibraryRoot
+        ?.isConnected
     ) {
-      const back =
-        document.querySelector(
-          '.headerBackButton,' +
-          'button[aria-label="Back" i],' +
-          'button[title="Back" i]'
-        );
-
-      if (back && back.isConnected) {
-        click(back);
-      } else {
-        window.history.back();
-      }
-
-      return true;
+      refreshNativeLibraryState(
+        root
+      );
     }
 
     if (zone === 'native-controls') {
@@ -7484,6 +8244,293 @@
   // NATIVE DIALOGS
   // ============================================================
 
+  function playerActionSheet() {
+    if (!playerPage()) {
+      return null;
+    }
+
+    return [
+      ...document.querySelectorAll(
+        '.dialogContainer .actionSheet,' +
+        '.actionSheet'
+      )
+    ].find(
+      root =>
+        visible(root) &&
+        !root.closest(
+          '.bst-popout-wrapper'
+        ) &&
+        !root.closest(
+          '.je-more-info-modal'
+        )
+    ) || null;
+  }
+
+  function playerActionSheetTargets(
+    root
+  ) {
+    if (!root) {
+      return [];
+    }
+
+    return uniqueVisible([
+      ...root.querySelectorAll(
+        '.actionSheetMenuItem:not([disabled])'
+      )
+    ]);
+  }
+
+  function preferredPlayerActionSheetTarget(
+    root,
+    targets
+  ) {
+    const active =
+      document.activeElement;
+
+    const focused =
+      targets.find(
+        el =>
+          el === active ||
+          el.classList.contains(
+            'autoFocus'
+          )
+      );
+
+    if (focused) {
+      return focused;
+    }
+
+    return (
+      targets.find(
+        el => {
+          const check =
+            el.querySelector(
+              '.material-icons.check'
+            );
+
+          return (
+            check &&
+            visible(check)
+          );
+        }
+      ) ||
+      targets[0] ||
+      null
+    );
+  }
+
+  function enterPlayerActionSheet(
+    root
+  ) {
+    const targets =
+      playerActionSheetTargets(
+        root
+      );
+
+    zone =
+      'player-action-sheet';
+
+    return setExt(
+      'player-action-sheet',
+      root,
+      targets,
+      preferredPlayerActionSheetTarget(
+        root,
+        targets
+      )
+    );
+  }
+
+  function closePlayerActionSheet(
+    root
+  ) {
+    const close =
+      [
+        ...root.querySelectorAll(
+          '.btnCloseActionSheet'
+        )
+      ].find(
+        visible
+      );
+
+    if (close) {
+      click(close);
+
+      return true;
+    }
+
+    return false;
+  }
+
+  function handlePlayerActionSheet(
+    event,
+    root
+  ) {
+    if (
+      [
+        'Escape',
+        'BrowserBack',
+        'GoBack'
+      ].includes(
+        event.key
+      )
+    ) {
+      consume(event);
+
+      if (
+        !closePlayerActionSheet(
+          root
+        )
+      ) {
+        /*
+         * Jellyfin ActionSheets enable dialog history by default. Going back
+         * one history state closes the top sheet through DialogHashHandler
+         * without sending another keyboard event through our capture handler.
+         */
+        window.history.back();
+      }
+
+      setTimeout(
+        resolveContext,
+        80
+      );
+
+      return true;
+    }
+
+    if (
+      ![
+        'ArrowLeft',
+        'ArrowRight',
+        'ArrowUp',
+        'ArrowDown',
+        'Enter',
+        ' '
+      ].includes(
+        event.key
+      )
+    ) {
+      return false;
+    }
+
+    consume(event);
+
+    const targets =
+      playerActionSheetTargets(
+        root
+      );
+
+    const previous =
+      extContext ===
+        'player-action-sheet'
+        ? extTargets[
+            extIndex
+          ]
+        : null;
+
+    extContext =
+      'player-action-sheet';
+
+    extRoot =
+      root;
+
+    extTargets =
+      targets;
+
+    if (!extTargets.length) {
+      hideFocus();
+
+      return true;
+    }
+
+    let index =
+      previous
+        ? extTargets.indexOf(
+            previous
+          )
+        : -1;
+
+    if (index < 0) {
+      const preferred =
+        preferredPlayerActionSheetTarget(
+          root,
+          extTargets
+        );
+
+      index =
+        preferred
+          ? extTargets.indexOf(
+              preferred
+            )
+          : 0;
+    }
+
+    extIndex =
+      Math.max(
+        0,
+        index
+      );
+
+    if (
+      event.key ===
+        'ArrowUp'
+    ) {
+      extIndex =
+        Math.max(
+          0,
+          extIndex - 1
+        );
+    } else if (
+      event.key ===
+        'ArrowDown'
+    ) {
+      extIndex =
+        Math.min(
+          extTargets.length - 1,
+          extIndex + 1
+        );
+    } else if (
+      event.key ===
+        'Enter' ||
+      event.key ===
+        ' '
+    ) {
+      const target =
+        extTargets[
+          extIndex
+        ];
+
+      click(target);
+
+      setTimeout(
+        resolveContext,
+        80
+      );
+
+      return true;
+    }
+
+    const target =
+      extTargets[
+        extIndex
+      ];
+
+    scrollModalTarget(
+      target,
+      root
+    );
+
+    requestAnimationFrame(
+      () => {
+        showFocusElement(
+          target
+        );
+      }
+    );
+
+    return true;
+  }
+
   function nativeDialog() {
     return [
       ...document.querySelectorAll(
@@ -7517,24 +8564,24 @@
       return [];
     }
 
-    return uniqueVisible([
-      ...root.querySelectorAll(
-        'button:not([disabled]),' +
-        'a[href],' +
-        '[role="button"]:not([aria-disabled="true"]),' +
-        '[role="option"]:not([aria-disabled="true"]),' +
-        'input:not([type="hidden"]):not([disabled]),' +
-        'select:not([disabled]),' +
-        'textarea:not([disabled]),' +
-        '[tabindex]:not([tabindex="-1"])'
-      )
-    ]).filter(
-      el =>
-        !el.closest(
-          '[aria-hidden="true"]'
+    return sortVisual(
+      uniqueVisible([
+        ...root.querySelectorAll(
+          'button:not([disabled]),' +
+          'a[href],' +
+          '[role="button"]:not([aria-disabled="true"]),' +
+          '[role="option"]:not([aria-disabled="true"]),' +
+          'input:not([type="hidden"]):not([disabled]),' +
+          'select:not([disabled]),' +
+          'textarea:not([disabled]),' +
+          '[tabindex]:not([tabindex="-1"])'
         )
-    ).sort(
-      visualSort
+      ]).filter(
+        el =>
+          !el.closest(
+            '[aria-hidden="true"]'
+          )
+      )
     );
   }
 
@@ -7851,6 +8898,28 @@
       setTimeout(
         () => {
           ensureMediaObserver();
+          const pauseOverlay = document.querySelector('#pause-screen-overlay');
+          if (pauseOverlay !== pauseScreenObserverRoot) {
+            pauseScreenObserver?.disconnect();
+            pauseScreenObserverRoot = pauseOverlay;
+            pauseScreenObserver = pauseOverlay ? new MutationObserver(() => {
+              if (enhancedPauseScreen()) hideFocus();
+              scheduleContextRefresh();
+            }) : null;
+            pauseScreenObserver?.observe(pauseOverlay, {
+              attributes: true, attributeFilter: ['aria-hidden', 'class', 'style']
+            });
+          }
+          const details = detailRoot();
+          if (details !== detailObserverRoot) {
+            detailObserver?.disconnect();
+            detailObserverRoot = details;
+            detailObserver = details ? new MutationObserver(() => scheduleContextRefresh()) : null;
+            detailObserver?.observe(details, {
+              subtree: true, attributes: true,
+              attributeFilter: ['class', 'disabled', 'aria-hidden']
+            });
+          }
 
           if (
             zone ===
@@ -7953,19 +9022,38 @@
             mutations
           ) {
             if (
-              mutation.type ===
-              'childList' &&
-              (
+              mutation.type !==
+                'childList' ||
+              !(
                 mutation.addedNodes
                   .length ||
                 mutation.removedNodes
                   .length
               )
             ) {
-              changed =
-                true;
+              continue;
+            }
 
-              break;
+            changed =
+              true;
+
+            const target =
+              mutation.target instanceof
+                Element
+                ? mutation.target
+                : mutation.target
+                    ?.parentElement;
+
+
+            if (
+              target &&
+              nativeLibraryRoot &&
+              nativeLibraryRoot.contains(
+                target
+              )
+            ) {
+              nativeLibraryDirty =
+                true;
             }
           }
 
@@ -8014,6 +9102,8 @@
       return false;
     }
 
+    homeMediaSettleToken++;
+    homeRowSettleToken++;
     lastLocationKey =
       location.href;
 
@@ -8348,6 +9438,33 @@
       };
     }
 
+    const playerSheet =
+      playerActionSheet();
+
+    if (playerSheet) {
+      if (
+        zone !==
+          'player-action-sheet' ||
+        extContext !==
+          'player-action-sheet' ||
+        !extTargetsStillValid(
+          playerSheet
+        )
+      ) {
+        enterPlayerActionSheet(
+          playerSheet
+        );
+      }
+
+      return {
+        type:
+          'player-action-sheet',
+
+        root:
+          playerSheet
+      };
+    }
+
     const dialog =
       nativeDialog();
 
@@ -8373,6 +9490,13 @@
         root:
           dialog
       };
+    }
+
+    const pauseScreen = enhancedPauseScreen();
+    if (pauseScreen && playerPage()) {
+      zone = 'enhanced-pause-screen';
+      hideFocus();
+      return { type: 'enhanced-pause-screen', root: pauseScreen };
     }
 
     if (drawerOpen()) {
@@ -8453,33 +9577,21 @@
     if (details) {
       rebuildHeaderTargets();
 
-      const actions =
-        detailActions(
-          details
-        );
-
-      const detailNeedsPrimaryFocus =
-        actions.length > 0 &&
-        !extTargets.some(
-          target =>
-            actions.includes(
-              target
-            )
-        );
+      if (detailFocusRoot !== details) {
+        detailFocusRoot = details;
+        detailPrimaryPending = true;
+      }
+      const primary = detailPrimaryAction(details);
+      const needsInitialPrimary = detailPrimaryPending && primary;
 
       if (
-        zone !==
-        'detail' ||
-        extContext !==
-        'detail' ||
-        !extTargetsStillValid(
-          details
-        ) ||
-        detailNeedsPrimaryFocus
+        zone !== 'detail' || extContext !== 'detail' ||
+        !extTargetsStillValid(details) || needsInitialPrimary
       ) {
-        enterDetail(
-          details
+        enterDetail(details,
+          zone !== 'detail' || extRoot !== details || !!needsInitialPrimary
         );
+        if (primary) detailPrimaryPending = false;
       }
 
       return {
@@ -8495,6 +9607,15 @@
       seerrGridRoot();
 
     if (seerrGrid) {
+      const activeKey =
+        activeMainTabKey();
+
+      if (
+        activeKey
+      ) {
+        parentMainTabKey =
+          activeKey;
+      }
       const cards =
         seerrGridCards(
           seerrGrid
@@ -8548,10 +9669,8 @@
           nativeLibrary;
 
         /*
-         * A freshly opened Movies / TV library should begin on the
-         * active Jellyfin tab (Movies or Shows), not the first poster.
-         * Down from the tab still enters the library's native controls
-         * and then its grid.
+         * A freshly opened downloaded Movies / Shows library is a Home
+         * subsection. Down enters the library's native controls and grid.
          */
         enterHeader(
           true
@@ -8614,7 +9733,10 @@
         'native-dialog',
         'request-form',
         'seerr-modal',
-        'enhanced-modal'
+        'enhanced-modal',
+        'player',
+        'player-action-sheet',
+        'enhanced-pause-screen'
       ].includes(
         zone
       )
@@ -8638,6 +9760,18 @@
   function handleHeader(
     event
   ) {
+    if (
+      isBackKey(
+        event.key
+      )
+    ) {
+      consume(
+        event
+      );
+
+      return true;
+    }
+
     if (
       ![
         'ArrowLeft',
@@ -8987,6 +10121,10 @@
           back
         );
 
+        restoreParentMainTabAfterBackNavigation(
+          root
+        );
+
         return true;
       }
 
@@ -9007,6 +10145,8 @@
     ) {
       return false;
     }
+
+    detailPrimaryPending = false;
 
     consume(
       event
@@ -9034,12 +10174,41 @@
       event.key ===
       ' '
     ) {
-      click(
+      const activationTarget =
         detailActivationTarget(
           extTargets[
             extIndex
           ]
+        );
+
+      if (
+        activationTarget?.matches?.(
+          '.btnPlay,' +
+          '.btnResume,' +
+          '[data-action="play"],' +
+          '[data-action="resume"]'
+        ) ||
+        activationTarget?.closest?.(
+          '.mainDetailButtons'
+        ) &&
+        /^(play|resume)(\s|$)/i.test(
+          (
+            activationTarget.getAttribute?.(
+              'aria-label'
+            ) ||
+            activationTarget.getAttribute?.(
+              'title'
+            ) ||
+            activationTarget.textContent ||
+            ''
+          ).trim()
         )
+      ) {
+        showPlayerLaunchShield();
+      }
+
+      click(
+        activationTarget
       );
 
       return true;
@@ -9150,6 +10319,36 @@
       consume(
         event
       );
+
+      if (event.key === 'Enter' || event.key === ' ') {
+        togglePlayerPlayback(
+          page
+        );
+
+        /*
+         * Tapping OK while the OSD is hidden is the TV-style play/pause
+         * gesture. If Jellyfin Enhanced did not claim the pause with its own
+         * screen, immediately reveal Jellyfin's native OSD and focus Play/Pause.
+         */
+        setTimeout(
+          () => {
+            const live =
+              playerPage();
+
+            if (
+              live &&
+              !enhancedPauseScreen()
+            ) {
+              wakePlayer(
+                live
+              );
+            }
+          },
+          30
+        );
+
+        return true;
+      }
 
       wakePlayer(
         page
@@ -9378,6 +10577,23 @@
     }
 
     if (
+      isBackKey(
+        event.key
+      )
+    ) {
+      consume(
+        event
+      );
+
+      focusMainTab(
+        currentMainTabKey(),
+        false
+      );
+
+      return true;
+    }
+
+    if (
       ![
         'ArrowLeft',
         'ArrowRight',
@@ -9520,7 +10736,10 @@
         'ArrowUp',
         'ArrowDown',
         'Enter',
-        ' '
+        ' ',
+        'Escape',
+        'BrowserBack',
+        'GoBack'
       ].includes(
         event.key
       )
@@ -9532,9 +10751,43 @@
       event
     );
 
+    if (
+      isBackKey(
+        event.key
+      )
+    ) {
+      const back =
+        root.querySelector(
+          '[data-grid-nav="back"]'
+        );
+
+      if (back) {
+        click(
+          back
+        );
+      }
+
+      setTimeout(
+        () =>
+          focusMainTab(
+            currentMainTabKey(),
+            false
+          ),
+        100
+      );
+
+      return true;
+    }
+
+    const cards =
+      seerrGridCards(
+        root
+      );
+
     const targets =
       seerrGridTargets(
-        root
+        root,
+        cards
       );
 
     if (
@@ -9570,9 +10823,7 @@
       index < 0
     ) {
       const firstCard =
-        seerrGridCards(
-          root
-        )[0];
+        cards[0];
 
       index =
         firstCard
@@ -9714,6 +10965,23 @@
     event
   ) {
     homeMediaSettleToken++;
+
+    if (
+      isBackKey(
+        event.key
+      )
+    ) {
+      consume(
+        event
+      );
+
+      focusMainTab(
+        'home',
+        false
+      );
+
+      return true;
+    }
 
     const target =
       event.target;
@@ -10006,6 +11274,24 @@
     const context =
       resolveContext();
 
+
+    if (context.type === 'enhanced-pause-screen') {
+      handleEnhancedPauseScreen(event, context.root);
+      return;
+    }
+
+    if (
+      context.type ===
+      'player-action-sheet'
+    ) {
+      handlePlayerActionSheet(
+        event,
+        context.root
+      );
+
+      return;
+    }
+
     if (
       context.type ===
       'native-dialog'
@@ -10211,6 +11497,9 @@
   // ============================================================
 
   function cleanup() {
+    universalHomeToken++;
+    homeMediaSettleToken++;
+    homeRowSettleToken++;
     window.removeEventListener(
       'keydown',
       handleKeyDown,
@@ -10238,6 +11527,12 @@
 
     disconnectMediaObserver();
     disconnectPlayerObserver();
+    pauseScreenObserver?.disconnect();
+    pauseScreenObserver = null;
+    pauseScreenObserverRoot = null;
+    detailObserver?.disconnect();
+    detailObserver = null;
+    detailObserverRoot = null;
 
     [
       rebuildTimer,
@@ -10247,7 +11542,8 @@
       enterLongTimer,
       backLongTimer,
       observerMaintenanceTimer,
-      postHeaderTimer
+      postHeaderTimer,
+      universalHomeTimer
     ].forEach(
       timer => {
         if (timer) {
@@ -10285,6 +11581,8 @@
     keyboardRoot
       ?.remove();
 
+    removePlayerLaunchShield();
+
     focusRing
       ?.remove();
 
@@ -10311,6 +11609,7 @@
 
     clearNativeLibraryState();
 
+
     selectMode =
       null;
 
@@ -10336,6 +11635,7 @@
     .__JELLYFIN_TV_REMOTE__ = {
       version:
         VERSION,
+
 
       cleanup,
 
@@ -10462,6 +11762,27 @@
 
   rebuildRows();
   rebuildHeaderTargets();
+
+  const initialMainTab =
+    headerTargets.find(
+      target =>
+        mainTabKey(
+          target
+        ) &&
+        (
+          target.classList.contains(
+            'emby-tab-button-active'
+          ) ||
+          target.getAttribute(
+            'aria-selected'
+          ) ===
+            'true'
+        )
+    );
+
+  rememberParentMainTab(
+    initialMainTab
+  );
 
   createFocusRing();
 
