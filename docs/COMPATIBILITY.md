@@ -15,12 +15,13 @@
 | Jellyfin Enhanced | Optional integration | Supported popup/request elements |
 | GlassFin | Optional | Tested, not required |
 | Home Screen Sections | Optional | Tested, not required |
+| JellyMark | Optional integration | TV navigation for the independent JellyMark Watchlist UI |
 
 ## Required dependency
 
 ### JavaScript Injector
 
-Jellyfin TV Navigation is distributed as frontend JavaScript rather than a Jellyfin DLL, so it needs a loader.
+JellyNav is distributed as frontend JavaScript rather than a Jellyfin DLL, so it needs a loader.
 
 The supported installation method is:
 
@@ -39,7 +40,7 @@ No other third-party plugin is required for core navigation.
 The current stable build is:
 
 ```text
-2026.09.30-r12.12.2-seerr-grid-navigation
+2026.09.30-r12.19-jellymark-compatibility
 ```
 
 It targets Jellyfin 12.1-era **Legacy / TV UI**.
@@ -103,6 +104,10 @@ The included Media Bar patch is a separate compatibility fix for an upstream aut
 Supported request/info UI is detected when Jellyfin Enhanced is present. Jellyfin Enhanced itself is not required.
 
 Project: [n00bcodr/Jellyfin-Enhanced](https://github.com/n00bcodr/Jellyfin-Enhanced)
+
+### JellyMark
+
+[JellyMark](https://github.com/isaacAmejia/jellymark) is a separate JellyPi project. Neither project requires the other. When both are installed, JellyNav automatically recognizes JellyMark's Watchlist interface, including its tabs, filters, Series Progress, history, statistics, and dialogs.
 
 ### Themes
 
